@@ -58,7 +58,7 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
   const rem=(row[rc]||'').trim();out['s'+hash(nm.split(/\s+/)[0])]={name:nm,avail:av,remarks:rem,roles:inferRoles(rem),partner:[]}}
  Object.keys(out).forEach(id=>out[id].partner=guessPartners(id,out));return out}
 /* ---------- CONFIG: paste your Google OAuth Web Client ID (see README) ---------- */
-const CLIENT_ID='PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com';
+const CLIENT_ID='436484108503-nrfm7luig664frpnaos0iv6fmp9uukon.apps.googleusercontent.com';
 const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
 const KEY='pnw.v1';
 function save(){try{localStorage.setItem(KEY,JSON.stringify({DB,R}))}catch(e){note='Couldn’t save in this browser.';draw()}}
