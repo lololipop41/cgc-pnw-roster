@@ -21,7 +21,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:4px 6px;text-align:left;
 .empty{padding:30px;text-align:center;color:var(--mu)}.ban{background:var(--wnb);color:var(--wn);padding:8px 12px;border-radius:8px;margin-bottom:12px}
 label.k{margin-right:8px;white-space:nowrap;font-size:13px}details{margin:6px 0}summary{cursor:pointer;color:var(--mu);font-size:13px}.tag{font-size:11px;color:var(--ac);border:1px solid var(--ac);border-radius:99px;padding:0 6px}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
-<main><h1>🎶 PnW Serving Scheduler</h1><div id="app"></div></main>
+<main><h1>🎶 PnW Serving Scheduler</h1><div id="app"></div></main><input type="file" id="rsf" accept=".json,application/json" hidden>
 <script>
 const SID='1aowqbfVmYRORXT2qJZCIkNNJxt2hejvVlusjG5CAd1o',SRV='Google Sheets';
 const SL=['Lead','Backup','Backup','Piano','Bass','Drum','PA','PPT'],CN=['领唱','助唱','助唱','司琴','贝斯','鼓手','音响','PPT'],ROLES=['Lead','Backup','Piano','Bass','Drum','PA','PPT'];
@@ -61,10 +61,12 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
 const CLIENT_ID='436484108503-nrfm7luig664frpnaos0iv6fmp9uukon.apps.googleusercontent.com';
 const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
 const KEY='pnw.v1';
-function save(){try{localStorage.setItem(KEY,JSON.stringify({DB,R}))}catch(e){note='Couldn’t save in this browser.';draw()}}
-function load(){try{const j=JSON.parse(localStorage.getItem(KEY)||'{}');DB=j.DB||{};R=j.R||{}}catch(e){}}
+function snap(){return{DB,R,SH,RL,rolesOk,syncAt}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(snap()))}catch(e){note='Couldn’t save in this browser.';draw()}}
+function load(){try{const j=JSON.parse(localStorage.getItem(KEY)||'{}');DB=j.DB||{};R=j.R||{};SH=j.SH||{};RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.syncAt?new Date(j.syncAt):null}catch(e){}}
 function dlBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
-function restore(){const i=document.createElement('input');i.type='file';i.accept='.json,application/json';i.onchange=async()=>{try{const j=JSON.parse(await i.files[0].text());if(!j.DB||!j.R)throw 0;DB=j.DB;R=j.R;save();rebuild();note='Backup restored.';draw()}catch(e){note='That file isn’t a valid backup.';draw()}};i.click()}
+function applyBackup(j){if(!j||!j.DB||!j.R)throw new Error('bad');DB=j.DB;R=j.R;if(j.SH){SH=j.SH;RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.syncAt?new Date(j.syncAt):null}save();rebuild()}
+function restore(){const i=document.getElementById('rsf');i.value='';i.click()}
 /* ---------- Google Sheet (read-only OAuth) ---------- */
 function signIn(){
  if(/^PASTE/.test(CLIENT_ID)){syncErr='Set CLIENT_ID in index.html first (see README).';draw();return}
@@ -80,7 +82,7 @@ async function syncNow(){if(!tok||Date.now()>tokExp){tok=null;draw();return}sync
   if(!res.ok)throw new Error(res.status);
   const vr=(await res.json()).valueRanges||[];SH=parseSheet((vr[0]&&vr[0].values)||[]);const m={};
   names.forEach((t,i)=>((vr[i+1]&&vr[i+1].values)||[]).slice(1).forEach(row=>{const cn=((row&&row[0])||'').trim().split(/\s+/)[0];if(!cn)return;const id='s'+hash(cn);(m[id]=m[id]||[]).push(TABS[t])}));
-  RL=m;rolesOk=true;syncAt=new Date();rebuild();draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
+  RL=m;rolesOk=true;syncAt=new Date();rebuild();save();draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
 /* ---------- merge sheet + saved edits ---------- */
 function rebuild(){P={};new Set([...Object.keys(SH),...Object.keys(DB)]).forEach(id=>{const s=SH[id],d=DB[id]||{};if(!s&&!d.name)return;
  P[id]={sheet:!!s,name:s?s.name:d.name,remarks:d.remarks!=null?d.remarks:(s?s.remarks:''),roles:d.roles||(s?(rolesOk?(RL[id]||[]):s.roles):[]),partner:d.partner||(s?s.partner:[]),avoid:d.avoid||[],max:d.max||3,nth:d.nth||[],avail:Object.assign({},s?s.avail:{},d.ov||{})}})}
@@ -102,7 +104,7 @@ function draft(){const yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(
    const sc=q=>cnt(q,yr)*10-(P[q].partner.some(x=>on(d,x,-1))?5:0)-(Object.keys(P).some(x=>P[x].partner.includes(q)&&on(d,x,-1))?5:0)+(P[q].roles.length)*0.5+Math.random()*3;
    c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0]}}saveMonth()}
 /* ---------- views ---------- */
-function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">No people yet. Sync the sheet or add people.</div>';
+function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+(Object.keys(R).length?'Your roster is saved, but names load after you sign in with Google (button above).':'No people yet. Sign in with Google to load the Sheet, or add people.')+'</div>';
  let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
  let h=`<div class="bar"><button data-a="draft">Auto-fill empty slots</button><button class="g" data-a="clear">Clear month</button><button data-a="pdf">Download PDF</button><span class="sub">${n} empty slot${n==1?'':'s'}</span></div>`;
  for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table>`;
@@ -161,7 +163,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button[dat
  else if(a==='clear'){Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);saveMonth()}
  else if(a==='sync'){tok&&Date.now()<tokExp?syncNow():signIn()}
  else if(a==='pdf'){try{dlBlob(await makePdf(),'PnW-schedule.pdf')}catch(x){note='Couldn’t create the PDF.';draw()}}
- else if(a==='bk')dlBlob(new Blob([JSON.stringify({DB,R})],{type:'application/json'}),'pnw-backup.json')
+ else if(a==='bk')dlBlob(new Blob([JSON.stringify(snap())],{type:'application/json'}),'pnw-backup.json')
  else if(a==='rs')restore()
  else if(a==='av'){const id=b.dataset.p,d=b.dataset.d,cur=P[id].avail[d]||'',nx={'':'Y',Y:'N',N:'B',B:''}[cur],base=(SH[id]&&SH[id].avail[d])||'',ov=Object.assign({},(DB[id]||{}).ov);nx===base?delete ov[d]:ov[d]=nx;patch(id,{ov})}
  else if(a==='new')patch('p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),{name:'New person',roles:[],max:3,partner:[],avoid:[],ov:{}});
@@ -174,6 +176,7 @@ document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)retu
  else if(a==='pm'){const f=t.dataset.f,s=new Set(P[id][f]);od=id+f;t.checked?s.add(t.dataset.o):s.delete(t.dataset.o);patch(id,{[f]:[...s]})}
  else if(a==='nth'){const s=new Set(P[id].nth),n=+t.dataset.n;t.checked?s.add(n):s.delete(n);patch(id,{nth:[...s].sort()})}});
 /* ---------- start ---------- */
+document.getElementById('rsf').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;try{applyBackup(JSON.parse(await f.text()));note=Object.keys(P).length?'Backup restored.':'Backup restored. Sign in with Google to show the names.'}catch(x){note='That file isn’t a valid backup.'}draw()});
 load();rebuild();draw();
 setInterval(()=>{if(tok&&Date.now()<tokExp)syncNow()},60000);
 </script></body></html>

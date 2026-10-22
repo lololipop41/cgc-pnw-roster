@@ -33,6 +33,7 @@ The Client ID is not a secret. The app only reads the first sheet plus the tabs 
 
 - Edits (availability changes, roles, partners, remarks) and rosters are saved in **this browser** (`localStorage`).
 - They are **not shared** between people or devices. Use **Backup** to download a JSON file and **Restore** to load it on another browser.
+- The last Sheet data (names, roles, availability) is also saved, so the roster still shows names when you are signed out or offline. Backups include it too.
 - Clearing site data erases them, so back up before big changes.
 - For one shared roster across the team you need a small backend (for example Firebase, Supabase or a Google Apps Script). Ask if you want that added.
 
