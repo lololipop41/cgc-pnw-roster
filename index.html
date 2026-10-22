@@ -1,0 +1,179 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>PnW Serving Scheduler</title>
+<style>
+:root{--bg:#f7f6f2;--sf:#fff;--tx:#1f2328;--mu:#6b7078;--bd:#dedbd2;--ac:#3b5bdb;--ok:#2f9e6a;--okb:#dff3e8;--rd:#c92a2a;--rdb:#fde4e4;--wn:#b36b00;--wnb:#fff1d6;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17181b;--sf:#202226;--tx:#e8e9ec;--mu:#9a9fa8;--bd:#34373d;--ac:#8ea2ff;--ok:#6fd3a0;--okb:#1e3a2d;--rd:#ff8d8d;--rdb:#432326;--wn:#f0b255;--wnb:#40321a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17181b;--sf:#202226;--tx:#e8e9ec;--mu:#9a9fa8;--bd:#34373d;--ac:#8ea2ff;--ok:#6fd3a0;--okb:#1e3a2d;--rd:#ff8d8d;--rdb:#432326;--wn:#f0b255;--wnb:#40321a;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:1000px;margin:0 auto;padding:16px}h1{font-size:20px;margin:0 0 12px}h3{margin:0 0 8px;font-size:15px}
+nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+nav button,.bar button{border:1px solid var(--bd);background:var(--sf);color:var(--tx);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
+nav button.on{background:var(--ac);color:#fff;border-color:var(--ac)}button.g{color:var(--mu)}
+select,input{font:inherit;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:5px 7px;max-width:100%}
+.bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+section,.sc{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:12px}.sc{overflow-x:auto}
+table{border-collapse:collapse;width:100%}td,th{padding:4px 6px;text-align:left;vertical-align:middle;white-space:nowrap}
+.st{white-space:normal}.st span{display:inline-block;margin:1px 4px 1px 0;padding:1px 7px;border-radius:99px;font-size:12px}
+.r{background:var(--rdb);color:var(--rd)}.w{background:var(--wnb);color:var(--wn)}.o{color:var(--ok)}
+.mk{background:var(--bg);color:var(--mu);font-style:italic}.n,.sub{color:var(--mu);font-size:13px;margin:0 0 10px}
+.c{width:56px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--mu);padding:4px 0;cursor:pointer;font:inherit}
+.cY{background:var(--okb);color:var(--ok)}.cN{background:var(--rdb);color:var(--rd)}.cB{background:var(--wnb);color:var(--wn)}.ed{outline:2px solid var(--ac)}
+.empty{padding:30px;text-align:center;color:var(--mu)}.ban{background:var(--wnb);color:var(--wn);padding:8px 12px;border-radius:8px;margin-bottom:12px}
+label.k{margin-right:8px;white-space:nowrap;font-size:13px}details{margin:6px 0}summary{cursor:pointer;color:var(--mu);font-size:13px}.tag{font-size:11px;color:var(--ac);border:1px solid var(--ac);border-radius:99px;padding:0 6px}
+</style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
+<main><h1>🎶 PnW Serving Scheduler</h1><div id="app"></div></main>
+<script>
+const SID='1aowqbfVmYRORXT2qJZCIkNNJxt2hejvVlusjG5CAd1o',SRV='Google Sheets';
+const SL=['Lead','Backup','Backup','Piano','Bass','Drum','PA','PPT'],CN=['领唱','助唱','助唱','司琴','贝斯','鼓手','音响','PPT'],ROLES=['Lead','Backup','Piano','Bass','Drum','PA','PPT'];
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let SH={},DB={},RL={},rolesOk=false,P={},R={},tok=null,tokExp=0,tc=null,tab='roster',ym='',note='',arm='',od='',syncAt=null,syncErr='';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const A=v=>Array.isArray(v)?v:v?[v]:[];
+const add=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)};
+const fmt=d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
+function suns(s){const[y,m]=s.split('-').map(Number),o=[],t=new Date(Date.UTC(y,m-1,1));while(t.getUTCDay())t.setUTCDate(t.getUTCDate()+1);while(t.getUTCMonth()==m-1){o.push(t.toISOString().slice(0,10));t.setUTCDate(t.getUTCDate()+7)}return o}
+const at=(d,i)=>R[d+'|'+i];
+const on=(d,p,skip)=>SL.some((_,i)=>i!==skip&&at(d,i)===p);
+const cnt=(p,pre,sk)=>Object.keys(R).filter(k=>k.startsWith(pre)&&R[k]===p&&k!==sk).length;
+const ids=()=>Object.keys(P).sort((a,b)=>P[a].name.localeCompare(P[b].name,'zh'));
+const hash=s=>{let h=0;for(const c of s)h=(h*31+c.codePointAt(0))>>>0;return h.toString(36)};
+/* ---------- sheet parsing (view only, first sheet) ---------- */
+function inferRoles(t){t=(t||'').replace(/青团\S*/g,'');const T=t.toLowerCase(),r=[];
+ if(/领唱/.test(t))r.push('Lead');if(/助唱/.test(t))r.push('Backup');if(/钢琴|司琴|助琴/.test(t))r.push('Piano');
+ if(/bass|贝斯/.test(T))r.push('Bass');if(/drum|鼓/.test(T))r.push('Drum');if(/\bpa\b|音响/.test(T))r.push('PA');if(/ppt/.test(T))r.push('PPT');
+ return r.length?r:ROLES.slice()}
+function guessPartners(id,out){const t=(out[id].remarks||'').toLowerCase();if(!/安排|排我|一起/.test(t))return[];
+ return Object.keys(out).filter(q=>{if(q===id)return false;const tk=out[q].name.split(/\s+/),cn=tk[0],en=tk.slice(1).map(x=>x.toLowerCase());
+  return en.some(x=>x.length>=3&&t.includes(x))||(en.length>=2&&t.includes(en.slice(-2).join('')))||(cn.length>=3&&t.includes(cn.slice(-2)))})}
+function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])[0],dr=v[1]||[],wr=v[2]||[];
+ let rc=wr.findIndex(x=>/remark/i.test(x||''));if(rc<0)rc=wr.length;
+ let y=y0,last=0;const cols=[];
+ for(let j=1;j<rc;j++){const m=/(\d+)\/(\d+)/.exec(dr[j]||'');if(!m)continue;const mo=+m[2];if(mo<last)y++;last=mo;
+  if(/sun/i.test(wr[j]||''))cols.push([j,y+'-'+String(mo).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0')])}
+ if(!cols.length)throw new Error('no dates');
+ const out={};
+ for(let r=3;r<v.length;r++){const row=v[r]||[],nm=(row[0]||'').trim();if(!nm)break;
+  const av={};cols.forEach(([j,d])=>{const c=(row[j]||'').trim().toLowerCase();if(c==='yes')av[d]='Y';else if(c==='no')av[d]='N'});
+  const rem=(row[rc]||'').trim();out['s'+hash(nm.split(/\s+/)[0])]={name:nm,avail:av,remarks:rem,roles:inferRoles(rem),partner:[]}}
+ Object.keys(out).forEach(id=>out[id].partner=guessPartners(id,out));return out}
+/* ---------- CONFIG: paste your Google OAuth Web Client ID (see README) ---------- */
+const CLIENT_ID='PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com';
+const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
+const KEY='pnw.v1';
+function save(){try{localStorage.setItem(KEY,JSON.stringify({DB,R}))}catch(e){note='Couldn’t save in this browser.';draw()}}
+function load(){try{const j=JSON.parse(localStorage.getItem(KEY)||'{}');DB=j.DB||{};R=j.R||{}}catch(e){}}
+function dlBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+function restore(){const i=document.createElement('input');i.type='file';i.accept='.json,application/json';i.onchange=async()=>{try{const j=JSON.parse(await i.files[0].text());if(!j.DB||!j.R)throw 0;DB=j.DB;R=j.R;save();rebuild();note='Backup restored.';draw()}catch(e){note='That file isn’t a valid backup.';draw()}};i.click()}
+/* ---------- Google Sheet (read-only OAuth) ---------- */
+function signIn(){
+ if(/^PASTE/.test(CLIENT_ID)){syncErr='Set CLIENT_ID in index.html first (see README).';draw();return}
+ if(!window.google||!google.accounts){syncErr='Google sign-in script didn’t load. Check your connection.';draw();return}
+ if(!tc)tc=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:'https://www.googleapis.com/auth/spreadsheets.readonly',callback:r=>{if(r.error){syncErr='Sign-in failed: '+r.error;draw();return}tok=r.access_token;tokExp=Date.now()+(r.expires_in-60)*1000;syncNow()}});
+ tc.requestAccessToken({prompt:tok?'':'select_account'})}
+async function syncNow(){if(!tok||Date.now()>tokExp){tok=null;draw();return}syncErr='';draw();
+ try{const names=Object.keys(TABS),rs=['A1:AH80',...names.map(t=>t+'!A1:A80')],/* no sheet name on the first range = first sheet only */
+  url='https://sheets.googleapis.com/v4/spreadsheets/'+SID+'/values:batchGet?majorDimension=ROWS&'+rs.map(r=>'ranges='+encodeURIComponent(r)).join('&'),
+  res=await fetch(url,{headers:{Authorization:'Bearer '+tok}});
+  if(res.status===401){tok=null;syncErr='Session expired. Sign in again.';draw();return}
+  if(res.status===403||res.status===404){syncErr='This Google account can’t open the Sheet.';draw();return}
+  if(!res.ok)throw new Error(res.status);
+  const vr=(await res.json()).valueRanges||[];SH=parseSheet((vr[0]&&vr[0].values)||[]);const m={};
+  names.forEach((t,i)=>((vr[i+1]&&vr[i+1].values)||[]).slice(1).forEach(row=>{const cn=((row&&row[0])||'').trim().split(/\s+/)[0];if(!cn)return;const id='s'+hash(cn);(m[id]=m[id]||[]).push(TABS[t])}));
+  RL=m;rolesOk=true;syncAt=new Date();rebuild();draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
+/* ---------- merge sheet + saved edits ---------- */
+function rebuild(){P={};new Set([...Object.keys(SH),...Object.keys(DB)]).forEach(id=>{const s=SH[id],d=DB[id]||{};if(!s&&!d.name)return;
+ P[id]={sheet:!!s,name:s?s.name:d.name,remarks:d.remarks!=null?d.remarks:(s?s.remarks:''),roles:d.roles||(s?(rolesOk?(RL[id]||[]):s.roles):[]),partner:d.partner||(s?s.partner:[]),avoid:d.avoid||[],max:d.max||3,nth:d.nth||[],avail:Object.assign({},s?s.avail:{},d.ov||{})}})}
+function patch(id,o){DB[id]=Object.assign({},DB[id],o);save();rebuild();draw()}
+/* ---------- rules ---------- */
+function iss(pid,d,i){const p=P[pid],h=[],s=[];if(!p)return{h,s};
+ const a=p.avail[d];if(a==='B')h.push('Serving elsewhere');else if(a!=='Y')h.push('Not available');
+ if(!p.roles.includes(SL[i]))h.push('Doesn’t do '+CN[i]);
+ if(on(d,pid,i))h.push('Already on this Sunday');
+ if(on(add(d,-7),pid,-1)||on(add(d,7),pid,-1))h.push('Back-to-back Sunday');
+ if(cnt(pid,d.slice(0,7),d+'|'+i)+1>p.max)h.push('Over monthly max');
+ const nth=Math.ceil(+d.slice(8)/7);if(p.nth.length&&!p.nth.includes(nth))h.push('Only Sunday '+p.nth.join('/')+' of month');
+ for(const q of Object.keys(P))if(q!==pid&&on(d,q,-1)&&(P[q].avoid.includes(pid)||p.avoid.includes(q)))h.push('Avoid '+P[q].name.split(/\s+/)[0]);
+ p.partner.forEach(q=>{if(P[q]&&!on(d,q,-1))s.push('Wants '+P[q].name.split(/\s+/)[0])});return{h,s}}
+function saveMonth(){save();draw()}
+function draft(){const yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
+ for(const d of suns(ym)){const order=SL.map((_,i)=>i).filter(i=>!at(d,i)).sort((a,b)=>el(d,a).length-el(d,b).length);
+  for(const i of order){const c=el(d,i);if(!c.length)continue;
+   const sc=q=>cnt(q,yr)*10-(P[q].partner.some(x=>on(d,x,-1))?5:0)-(Object.keys(P).some(x=>P[x].partner.includes(q)&&on(d,x,-1))?5:0)+(P[q].roles.length)*0.5+Math.random()*3;
+   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0]}}saveMonth()}
+/* ---------- views ---------- */
+function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">No people yet. Sync the sheet or add people.</div>';
+ let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
+ let h=`<div class="bar"><button data-a="draft">Auto-fill empty slots</button><button class="g" data-a="clear">Clear month</button><button data-a="pdf">Download PDF</button><span class="sub">${n} empty slot${n==1?'':'s'}</span></div>`;
+ for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table>`;
+  SL.forEach((r,i)=>{const cur=at(d,i),x=cur&&P[cur]?iss(cur,d,i):{h:[],s:[]};
+   const o=ids().map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
+   h+=`<tr><td>${CN[i]}</td><td><select data-a="set" data-k="${d}|${i}"><option value="">—</option>${o}</select></td><td class="st">${cur&&P[cur]&&P[cur].remarks?`<span class="mk">${esc(P[cur].remarks)}</span>`:''}${x.h.map(t=>`<span class="r">${esc(t)}</span>`).join('')}${x.s.map(t=>`<span class="w">${esc(t)}</span>`).join('')}${cur&&!x.h.length&&!x.s.length?'<span class="o">✔</span>':''}</td></tr>`});
+  h+='</table></section>'}
+ h+=`<section><h3>Services per person</h3><table><tr><th>Name</th><th>This month</th><th>${ym.slice(0,4)}</th></tr>`;
+ ids().forEach(q=>{h+=`<tr><td>${esc(P[q].name)}</td><td>${cnt(q,ym)} / ${P[q].max}</td><td>${cnt(q,ym.slice(0,4))}</td></tr>`});return h+'</table></section>'}
+function vAvail(){const ds=suns(ym);if(!ids().length)return'<div class="empty">No people yet.</div>';const L={Y:'Yes',N:'No',B:'Busy','':'·'};
+ let h='<p class="n">Values come from the Sheet. Tap a cell to change it (Yes → No → Busy → blank). Changed cells have a blue outline and stay in the app; the Sheet is never edited.</p><div class="sc"><table><tr><th>Name</th>'+ds.map(d=>`<th>${fmt(d)}</th>`).join('')+'</tr>';
+ ids().forEach(q=>{const ov=(DB[q]||{}).ov||{};h+=`<tr><td>${esc(P[q].name)}</td>`+ds.map(d=>{const v=P[q].avail[d]||'';return`<td><button class="c c${v}${d in ov?' ed':''}" data-a="av" data-p="${q}" data-d="${d}">${L[v]}</button></td>`}).join('')+'</tr>'});return h+'</table></div>'}
+function vPeople(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summary>${f==='partner'?'Prefers to serve with':'Never serves with'} (${p[f].length})</summary>${ids().filter(x=>x!==q).map(x=>`<label class="k"><input type="checkbox" data-a="pm" data-f="${f}" data-o="${x}" data-p="${q}"${p[f].includes(x)?' checked':''}> ${esc(P[x].name)}</label>`).join('')}</details>`;
+ let h='<div class="bar"><button data-a="new">+ Add person</button></div><p class="n">Roles come from the role tabs in the Sheet (vocal_main, vocal_sub, piano, drum, bass, pa, ppt). Partners are guessed from Remarks. Fix anything here; your changes are kept.</p>';
+ if(!ids().length)return h+'<div class="empty">No one yet.</div>';
+ ids().forEach(q=>{const p=P[q];h+=`<section><div class="bar"><input data-a="pf" data-f="name" data-p="${q}" value="${esc(p.name)}" aria-label="Name"${p.sheet?' disabled':''}>${p.sheet?'<span class="tag">from Sheet</span>':''}${p.sheet&&!p.roles.length?'<span class="tag" style="color:var(--wn);border-color:var(--wn)">no role in Sheet</span>':''}<label class="k">Max/month <input type="number" min="1" max="5" style="width:56px" data-a="pf" data-f="max" data-p="${q}" value="${p.max}"></label><button class="g" data-a="del" data-p="${q}">${arm===q?'Sure? Tap again':p.sheet?'Reset my edits':'Remove'}</button></div>
+ <div>${ROLES.map(r=>`<label class="k"><input type="checkbox" data-a="role" data-r="${r}" data-p="${q}"${p.roles.includes(r)?' checked':''}> ${r}</label>`).join('')}</div>
+ <div class="bar" style="margin:8px 0 0">${chk('partner',p,q)}${chk('avoid',p,q)}</div>
+ <div style="margin-top:6px"><span class="sub">Only these Sundays of the month (none ticked = any): </span>${[1,2,3,4,5].map(n=>`<label class="k"><input type="checkbox" data-a="nth" data-n="${n}" data-p="${q}"${p.nth.includes(n)?' checked':''}> ${n}</label>`).join('')}</div>
+ <input style="width:100%;margin-top:8px" placeholder="Remarks" data-a="pf" data-f="remarks" data-p="${q}" value="${esc(p.remarks)}"></section>`});return h}
+function draw(){const today=new Date().toISOString().slice(0,7);
+ const ms=[...new Set([...Object.values(P).flatMap(p=>Object.keys(p.avail)),...Object.keys(R)].map(k=>k.slice(0,7)))].sort();if(!ms.length)ms.push(today);
+ if(!ym||!ms.includes(ym))ym=ms.includes(today)?today:ms[0];
+ const mo=ms.map(m=>`<option value="${m}"${m===ym?' selected':''}>${MN[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join('');
+ const T=[['roster','Roster'],['avail','Availability'],['people','People']];
+ const st=syncErr?syncErr:syncAt?'Synced from Google Sheet at '+syncAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'.':'Not connected to the Google Sheet yet. Saved data is shown.';
+ $('#app').innerHTML=(note?`<div class="ban">${esc(note)}</div>`:'')+`<div class="bar"><span class="sub" style="margin:0">${esc(st)}</span><button class="g" data-a="sync">${tok&&Date.now()<tokExp?'Sync now':'Sign in with Google'}</button><button class="g" data-a="bk">Backup</button><button class="g" data-a="rs">Restore</button></div><nav>${T.map(t=>`<button data-a="tab" data-t="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('')}<select data-a="month" style="margin-left:auto">${mo}</select></nav>`+(tab==='roster'?vRoster():tab==='avail'?vAvail():vPeople())}
+/* ---------- PDF (canvas → JPEG → PDF, so Chinese names render) ---------- */
+function sheetCanvas(){const mons=[...new Set(Object.keys(R).map(k=>k.slice(0,7)))].sort();if(!mons.length)mons.push(ym);
+ const cw=[110,...SL.map(()=>140)],W=cw.reduce((a,b)=>a+b,0),HH=48,RH=48,xs=[0];cw.forEach(w=>xs.push(xs[xs.length-1]+w));
+ const rows=[];mons.forEach(m=>{rows.push({b:MN[+m.slice(5)-1]+' '+m.slice(0,4)});suns(m).forEach(d=>rows.push({d}))});
+ const H=HH+rows.length*RH,S=2,cv=document.createElement('canvas');cv.width=W*S;cv.height=(H+4)*S;const c=cv.getContext('2d');c.scale(S,S);
+ c.fillStyle='#fff';c.fillRect(0,0,W,H+4);c.translate(0,2);c.strokeStyle='#000';c.lineWidth=1.2;c.textAlign='center';c.textBaseline='middle';
+ const F='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC","Heiti SC",sans-serif',ln=(x1,y1,x2,y2)=>{c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke()};
+ c.fillStyle='#d9d9d9';c.fillRect(0,0,W,HH);c.fillStyle='#000';c.font='bold 22px '+F;
+ const hd=['日期','领唱','助唱',null,'司琴','贝斯','鼓手','音响','PPT'];hd.forEach((t,i)=>{if(!t)return;const x2=t==='助唱'?xs[i+2]:xs[i+1];c.fillText(t,(xs[i]+x2)/2,HH/2)});
+ xs.forEach((x,i)=>{if(i!==3)ln(x,0,x,HH)});ln(0,HH,W,HH);ln(0,0,W,0);
+ let y=HH;c.font='22px '+F;
+ rows.forEach(r=>{if(r.b){c.fillStyle='#d9d9d9';c.fillRect(0,y,W,RH);c.fillStyle='#000';c.fillText(r.b,W/2,y+RH/2);ln(0,y,0,y+RH);ln(W,y,W,y+RH)}
+  else{c.fillStyle='#000';c.fillText(+r.d.slice(8)+'-'+MN[+r.d.slice(5,7)-1],cw[0]/2,y+RH/2);
+   SL.forEach((_,i)=>{const q=at(r.d,i);if(q&&P[q])c.fillText(P[q].name.split(/\s+/)[0],xs[i+1]+cw[i+1]/2,y+RH/2)});xs.forEach(x=>ln(x,y,x,y+RH))}
+  ln(0,y+RH,W,y+RH);y+=RH});return cv}
+async function makePdf(){const cv=sheetCanvas(),blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),jpg=new Uint8Array(await blob.arrayBuffer());
+ const pw=842,ph=595,m=28;let w=pw-2*m,h=w*cv.height/cv.width;if(h>ph-2*m){h=ph-2*m;w=h*cv.width/cv.height}
+ const x=(pw-w)/2,y=ph-m-h,e=s=>new TextEncoder().encode(s),parts=[],off=[];let len=0;const push=b=>{parts.push(b);len+=b.length};
+ push(e('%PDF-1.4\n'));const obj=(n,b)=>{off[n]=len;push(e(n+' 0 obj\n'+b+'\nendobj\n'))};
+ obj(1,'<</Type/Catalog/Pages 2 0 R>>');obj(2,'<</Type/Pages/Kids[3 0 R]/Count 1>>');
+ obj(3,`<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${pw} ${ph}]/Resources<</XObject<</Im0 4 0 R>>>>/Contents 5 0 R>>`);
+ off[4]=len;push(e(`4 0 obj\n<</Type/XObject/Subtype/Image/Width ${cv.width}/Height ${cv.height}/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length ${jpg.length}>>\nstream\n`));push(jpg);push(e('\nendstream\nendobj\n'));
+ const cs=`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im0 Do Q`;obj(5,`<</Length ${cs.length}>>\nstream\n${cs}\nendstream`);
+ const xp=len;let xr='xref\n0 6\n0000000000 65535 f \n';for(let i=1;i<=5;i++)xr+=String(off[i]).padStart(10,'0')+' 00000 n \n';
+ push(e(xr+'trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n'+xp+'\n%%EOF'));return new Blob(parts,{type:'application/pdf'})}
+/* ---------- events ---------- */
+document.addEventListener('click',async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
+ if(a==='tab'){tab=b.dataset.t;draw()}else if(a==='draft')draft();
+ else if(a==='clear'){Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);saveMonth()}
+ else if(a==='sync'){tok&&Date.now()<tokExp?syncNow():signIn()}
+ else if(a==='pdf'){try{dlBlob(await makePdf(),'PnW-schedule.pdf')}catch(x){note='Couldn’t create the PDF.';draw()}}
+ else if(a==='bk')dlBlob(new Blob([JSON.stringify({DB,R})],{type:'application/json'}),'pnw-backup.json')
+ else if(a==='rs')restore()
+ else if(a==='av'){const id=b.dataset.p,d=b.dataset.d,cur=P[id].avail[d]||'',nx={'':'Y',Y:'N',N:'B',B:''}[cur],base=(SH[id]&&SH[id].avail[d])||'',ov=Object.assign({},(DB[id]||{}).ov);nx===base?delete ov[d]:ov[d]=nx;patch(id,{ov})}
+ else if(a==='new')patch('p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),{name:'New person',roles:[],max:3,partner:[],avoid:[],ov:{}});
+ else if(a==='del'){const q=b.dataset.p;if(arm!==q){arm=q;draw();return}arm='';delete DB[q];save();rebuild();draw()}});
+document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)return;const id=t.dataset.p;
+ if(a==='month'){ym=t.value;draw()}
+ else if(a==='set'){t.value?R[t.dataset.k]=t.value:delete R[t.dataset.k];saveMonth()}
+ else if(a==='pf'){const f=t.dataset.f;patch(id,{[f]:f==='max'?Math.max(1,+t.value||3):t.value})}
+ else if(a==='role'){const s=new Set(P[id].roles);t.checked?s.add(t.dataset.r):s.delete(t.dataset.r);patch(id,{roles:[...s]})}
+ else if(a==='pm'){const f=t.dataset.f,s=new Set(P[id][f]);od=id+f;t.checked?s.add(t.dataset.o):s.delete(t.dataset.o);patch(id,{[f]:[...s]})}
+ else if(a==='nth'){const s=new Set(P[id].nth),n=+t.dataset.n;t.checked?s.add(n):s.delete(n);patch(id,{nth:[...s].sort()})}});
+/* ---------- start ---------- */
+load();rebuild();draw();
+setInterval(()=>{if(tok&&Date.now()<tokExp)syncNow()},60000);
+</script></body></html>
