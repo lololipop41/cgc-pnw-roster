@@ -11,7 +11,7 @@ Static web app. `index.html` is the whole app. Everyone who opens the link and s
 - **People tab:** the search box filters the list as you type.
 - **Preview tab:** pick one or more months. The table is real text, so you can select and copy it. **Export As** (PDF or JPG) saves the same layout as an image. The bottom right shows `Updated at:` with the time of the last roster change.
 - **Show Changes:** the first export of a month is saved as the first version. Names that differ from that version are highlighted (`Highlighted = Recent update`) for as long as Show Changes is ticked, including in the export. Later exports do not replace the first version.
-- **Lock (Roster tab):** the lock icon at the far right of the Clear month row disables **Auto-fill empty slots** and **Clear month** for the selected month, for everyone. Click it again to unlock. Editing single slots is still allowed.
+- **Lock (Roster tab):** the lock icon at the far right of the Clear month row locks the roster for the selected month, for everyone. **Auto-fill empty slots**, **Clear month** and every slot dropdown are disabled, so nothing in that month's roster can change. Click it again to unlock. Availability and People can still be edited.
 - **Log tab (editors only):** who did what, grouped by date. Click a date to open it.
 
 ## Publish

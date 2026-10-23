@@ -96,7 +96,7 @@ async function doExport(kind){ddOpen=false;const ms=pvList();if(!ms.length){note
  if(canEdit){ms.forEach(m=>{if(BL[m])return;const a={};Object.keys(R).filter(k=>k.startsWith(m)).forEach(k=>a[k]=R[k]);fs.collection('baseline').doc('m'+m).set({a,v:1,at:Date.now()}).catch(fail)});
   log('Preview','Exported as '+kind.toUpperCase()+' ('+ms.map(monLabel).join(', ')+')')}
  draw()}
-function slot(k,v){if(!canEdit)return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()},u:Date.now()},{merge:true}).catch(fail);RU[k.slice(0,7)]=Date.now();draw()}
+function slot(k,v){if(!canEdit||LK[k.slice(0,7)])return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()},u:Date.now()},{merge:true}).catch(fail);RU[k.slice(0,7)]=Date.now();draw()}
 function pushRoster(added){const by={};Object.keys(added).forEach(k=>{const m=k.slice(0,7);(by[m]=by[m]||{})[k]=added[k]});Object.keys(by).forEach(m=>{RU[m]=Date.now();fs.collection('roster').doc('m'+m).set({a:by[m],u:Date.now()},{merge:true}).catch(fail)})}
 function clearMonth(){if(!canEdit||LK[ym])return;Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);fs.collection('roster').doc('m'+ym).set({a:{},u:Date.now()}).catch(fail);RU[ym]=Date.now();log('Roster','Clear month ('+monLabel(ym)+')');draw()}
 function login(){note='';auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e=>{if(e.code!=='auth/popup-closed-by-user'&&e.code!=='auth/cancelled-popup-request'){note='Sign-in failed ('+e.code+'). Check that this website is in Firebase → Authentication → Authorized domains.';draw()}})}
@@ -140,11 +140,11 @@ function draft(){if(!canEdit||LK[ym])return;const added={},yr=ym.slice(0,4),el=(
 /* ---------- views ---------- */
 function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
  const lk=!!LK[ym];let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
- let h=`<div class="bar"><button data-a="draft"${lk?' disabled':''}>Auto-fill empty slots</button><button class="g" data-a="clear"${lk?' disabled':''}>Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span><button class="g" data-a="lock" style="margin-left:auto" aria-pressed="${lk}" aria-label="${lk?'Unlock':'Lock'} Auto-fill and Clear month" title="${lk?'Unlock':'Lock'} Auto-fill and Clear month">${lk?'🔒':'🔓'}</button></div>`;
+ let h=`<div class="bar"><button data-a="draft"${lk?' disabled':''}>Auto-fill empty slots</button><button class="g" data-a="clear"${lk?' disabled':''}>Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span><button class="g" data-a="lock" style="margin-left:auto" aria-pressed="${lk}" aria-label="${lk?'Unlock':'Lock'} Auto-fill, Clear month and slot edits" title="${lk?'Unlock':'Lock'} Auto-fill, Clear month and slot edits">${lk?'🔒':'🔓'}</button></div>`;
  for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table>`;
   SL.forEach((r,i)=>{const cur=at(d,i),x=cur&&P[cur]?iss(cur,d,i):{h:[],s:[]};
    const o=ids().map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
-   h+=`<tr><td>${CN[i]}</td><td><select data-a="set" data-k="${d}|${i}"><option value="">—</option>${o}</select></td><td class="st">${cur&&P[cur]&&P[cur].remarks?`<span class="mk">${esc(P[cur].remarks)}</span>`:''}${x.h.map(t=>`<span class="r">${esc(t)}</span>`).join('')}${x.s.map(t=>`<span class="w">${esc(t)}</span>`).join('')}${cur&&!x.h.length&&!x.s.length?'<span class="o">✔</span>':''}</td></tr>`});
+   h+=`<tr><td>${CN[i]}</td><td><select data-a="set" data-k="${d}|${i}"${lk?' disabled':''}><option value="">—</option>${o}</select></td><td class="st">${cur&&P[cur]&&P[cur].remarks?`<span class="mk">${esc(P[cur].remarks)}</span>`:''}${x.h.map(t=>`<span class="r">${esc(t)}</span>`).join('')}${x.s.map(t=>`<span class="w">${esc(t)}</span>`).join('')}${cur&&!x.h.length&&!x.s.length?'<span class="o">✔</span>':''}</td></tr>`});
   h+='</table></section>'}
  h+=`<section><h3>Services per person</h3><table><tr><th>Name</th><th>This month</th><th>${ym.slice(0,4)}</th></tr>`;
  ids().forEach(q=>{h+=`<tr><td>${esc(P[q].name)}</td><td>${cnt(q,ym)} / ${P[q].max}</td><td>${cnt(q,ym.slice(0,4))}</td></tr>`});return h+'</table></section>'}
@@ -233,7 +233,7 @@ document.addEventListener('click',async e=>{if(ddOpen&&!e.target.closest('.dd'))
  else if(a==='del'){const q=b.dataset.p;if(arm!==q){arm=q;draw();return}arm='';const nm=P[q]?P[q].name:q,was=P[q]&&P[q].sheet;delete DB[q];if(canEdit){fs.collection('people').doc(q).delete().catch(fail);log('People',(was?'Reset edits for ':'Removed ')+nm)}rebuild();draw()}});
 document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)return;const id=t.dataset.p;
  if(a==='month'){ym=t.value;draw()}
- else if(a==='set'){const k=t.dataset.k,sp=k.split('|'),o=R[k],nv=t.value;slot(k,nv);log('Roster',`Updated ${ord(+sp[0].slice(8))} ${CN[sp[1]]} - '${o&&P[o]?P[o].name:'empty'}' to '${nv&&P[nv]?P[nv].name:'empty'}' (${monLabel(sp[0].slice(0,7))})`)}
+ else if(a==='set'){const k=t.dataset.k,sp=k.split('|'),o=R[k],nv=t.value;if(LK[sp[0].slice(0,7)]){draw();return}slot(k,nv);log('Roster',`Updated ${ord(+sp[0].slice(8))} ${CN[sp[1]]} - '${o&&P[o]?P[o].name:'empty'}' to '${nv&&P[nv]?P[nv].name:'empty'}' (${monLabel(sp[0].slice(0,7))})`)}
  else if(a==='pvm'){const st=new Set(pvList());t.checked?st.add(t.dataset.m):st.delete(t.dataset.m);pvSel=[...st].sort();draw()}
  else if(a==='chg'){showCh=t.checked;draw()}
  else if(a==='pf'){const f=t.dataset.f;patch(id,{[f]:f==='max'?Math.max(1,+t.value||3):t.value});if(P[id])log('People','Updated '+P[id].name)}
