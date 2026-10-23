@@ -21,7 +21,10 @@ table{border-collapse:collapse;width:100%}td,th{padding:4px 6px;text-align:left;
 .empty{padding:30px;text-align:center;color:var(--mu)}.ban{background:var(--wnb);color:var(--wn);padding:8px 12px;border-radius:8px;margin-bottom:12px}
 label.k{margin-right:8px;white-space:nowrap;font-size:13px}details{margin:6px 0}summary{cursor:pointer;color:var(--mu);font-size:13px}.tag{font-size:11px;color:var(--ac);border:1px solid var(--ac);border-radius:99px;padding:0 6px}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
-<main><h1>🎶 PnW Serving Scheduler</h1><div id="app"></div></main><input type="file" id="rsf" accept=".json,application/json" hidden>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<main><h1>🎶 PnW Serving Scheduler</h1><div id="app"></div></main>
 <script>
 const SID='1aowqbfVmYRORXT2qJZCIkNNJxt2hejvVlusjG5CAd1o',SRV='Google Sheets';
 const SL=['Lead','Backup','Backup','Piano','Bass','Drum','PA','PPT'],CN=['领唱','助唱','助唱','司琴','贝斯','鼓手','音响','PPT'],ROLES=['Lead','Backup','Piano','Bass','Drum','PA','PPT'];
@@ -57,36 +60,40 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
   const av={};cols.forEach(([j,d])=>{const c=(row[j]||'').trim().toLowerCase();if(c==='yes')av[d]='Y';else if(c==='no')av[d]='N'});
   const rem=(row[rc]||'').trim();out['s'+hash(nm.split(/\s+/)[0])]={name:nm,avail:av,remarks:rem,roles:inferRoles(rem),partner:[]}}
  Object.keys(out).forEach(id=>out[id].partner=guessPartners(id,out));return out}
-/* ---------- CONFIG: paste your Google OAuth Web Client ID (see README) ---------- */
-const CLIENT_ID='436484108503-nrfm7luig664frpnaos0iv6fmp9uukon.apps.googleusercontent.com';
+/* ---------- Firebase (shared data) ---------- */
+const firebaseConfig={apiKey:"AIzaSyAOqbTsQoYGubByF3PakBIN6VekjM5vjFc",authDomain:"cgc-pnw-roster.firebaseapp.com",projectId:"cgc-pnw-roster",storageBucket:"cgc-pnw-roster.firebasestorage.app",messagingSenderId:"477625768421",appId:"1:477625768421:web:5cff5214c1fefe23dcb70c"};
 const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
-const KEY='pnw.v1';
-function snap(){return{DB,R,SH,RL,rolesOk,syncAt}}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(snap()))}catch(e){note='Couldn’t save in this browser.';draw()}}
-function load(){try{const j=JSON.parse(localStorage.getItem(KEY)||'{}');DB=j.DB||{};R=j.R||{};SH=j.SH||{};RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.syncAt?new Date(j.syncAt):null}catch(e){}}
+let user=null,canEdit=false,denied=false,authReady=false,unsub=[];
+firebase.initializeApp(firebaseConfig);const auth=firebase.auth(),fs=firebase.firestore(),FV=firebase.firestore.FieldValue;
+const clean=o=>JSON.parse(JSON.stringify(o));
+const fail=()=>{note='Couldn’t save. You may not have edit access, or you are offline.';draw()};
 function dlBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
-function applyBackup(j){if(!j||!j.DB||!j.R)throw new Error('bad');DB=j.DB;R=j.R;if(j.SH){SH=j.SH;RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.syncAt?new Date(j.syncAt):null}save();rebuild()}
-function restore(){const i=document.getElementById('rsf');i.value='';i.click()}
-/* ---------- Google Sheet (read-only OAuth) ---------- */
-function signIn(){
- if(/^PASTE/.test(CLIENT_ID)){syncErr='Set CLIENT_ID in index.html first (see README).';draw();return}
- if(!window.google||!google.accounts){syncErr='Google sign-in script didn’t load. Check your connection.';draw();return}
- if(!tc)tc=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:'https://www.googleapis.com/auth/spreadsheets.readonly',callback:r=>{if(r.error){syncErr='Sign-in failed: '+r.error;draw();return}tok=r.access_token;tokExp=Date.now()+(r.expires_in-60)*1000;syncNow()}});
+function slot(k,v){if(!canEdit)return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()}},{merge:true}).catch(fail);draw()}
+function pushRoster(added){const by={};Object.keys(added).forEach(k=>{const m=k.slice(0,7);(by[m]=by[m]||{})[k]=added[k]});Object.keys(by).forEach(m=>fs.collection('roster').doc('m'+m).set({a:by[m]},{merge:true}).catch(fail))}
+function clearMonth(){if(!canEdit)return;Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);fs.collection('roster').doc('m'+ym).set({a:{}}).catch(fail);draw()}
+function login(){note='';auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e=>{if(e.code!=='auth/popup-closed-by-user'&&e.code!=='auth/cancelled-popup-request'){note='Sign-in failed ('+e.code+'). Check that this website is in Firebase → Authentication → Authorized domains.';draw()}})}
+/* ---------- Google Sheet (read-only, editors only) ---------- */
+const CLIENT_ID='436484108503-nrfm7luig664frpnaos0iv6fmp9uukon.apps.googleusercontent.com';
+function signIn(){syncErr='';if(!window.google||!google.accounts){syncErr='Google script didn’t load. Check your connection.';draw();return}
+ if(!tc)tc=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:'https://www.googleapis.com/auth/spreadsheets.readonly',hint:user&&user.email,
+  callback:r=>{if(r.error){syncErr='Sheet sign-in failed ('+r.error+').';draw();return}tok=r.access_token;tokExp=Date.now()+(r.expires_in-60)*1000;syncNow()},
+  error_callback:e=>{syncErr=e&&e.type==='popup_closed'?'':'Sheet sign-in failed ('+((e&&e.type)||'error')+').';draw()}});
  tc.requestAccessToken({prompt:tok?'':'select_account'})}
-async function syncNow(){if(!tok||Date.now()>tokExp){tok=null;draw();return}syncErr='';draw();
+async function syncNow(){if(!tok||Date.now()>tokExp){tok=null;signIn();return}syncErr='';draw();
  try{const names=Object.keys(TABS),rs=['A1:AH80',...names.map(t=>t+'!A1:A80')],/* no sheet name on the first range = first sheet only */
   url='https://sheets.googleapis.com/v4/spreadsheets/'+SID+'/values:batchGet?majorDimension=ROWS&'+rs.map(r=>'ranges='+encodeURIComponent(r)).join('&'),
   res=await fetch(url,{headers:{Authorization:'Bearer '+tok}});
-  if(res.status===401){tok=null;syncErr='Session expired. Sign in again.';draw();return}
+  if(res.status===401){tok=null;syncErr='Session expired. Press Sync Sheet again.';draw();return}
   if(res.status===403||res.status===404){syncErr='This Google account can’t open the Sheet.';draw();return}
   if(!res.ok)throw new Error(res.status);
-  const vr=(await res.json()).valueRanges||[];SH=parseSheet((vr[0]&&vr[0].values)||[]);const m={};
+  const vr=(await res.json()).valueRanges||[];const sh=parseSheet((vr[0]&&vr[0].values)||[]),m={};
   names.forEach((t,i)=>((vr[i+1]&&vr[i+1].values)||[]).slice(1).forEach(row=>{const cn=((row&&row[0])||'').trim().split(/\s+/)[0];if(!cn)return;const id='s'+hash(cn);(m[id]=m[id]||[]).push(TABS[t])}));
-  RL=m;rolesOk=true;syncAt=new Date();rebuild();save();draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
+  SH=sh;RL=m;rolesOk=true;syncAt=new Date();rebuild();
+  fs.collection('sheet').doc('latest').set(clean({SH,RL,rolesOk:true,at:Date.now()})).catch(fail);draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
 /* ---------- merge sheet + saved edits ---------- */
 function rebuild(){P={};new Set([...Object.keys(SH),...Object.keys(DB)]).forEach(id=>{const s=SH[id],d=DB[id]||{};if(!s&&!d.name)return;
  P[id]={sheet:!!s,name:s?s.name:d.name,remarks:d.remarks!=null?d.remarks:(s?s.remarks:''),roles:d.roles||(s?(rolesOk?(RL[id]||[]):s.roles):[]),partner:d.partner||(s?s.partner:[]),avoid:d.avoid||[],max:d.max||3,nth:d.nth||[],avail:Object.assign({},s?s.avail:{},d.ov||{})}})}
-function patch(id,o){DB[id]=Object.assign({},DB[id],o);save();rebuild();draw()}
+function patch(id,o){if(!canEdit)return;DB[id]=Object.assign({},DB[id],o);fs.collection('people').doc(id).set(clean(DB[id])).catch(fail);rebuild();draw()}
 /* ---------- rules ---------- */
 function iss(pid,d,i){const p=P[pid],h=[],s=[];if(!p)return{h,s};
  const a=p.avail[d];if(a==='B')h.push('Serving elsewhere');else if(a!=='Y')h.push('Not available');
@@ -97,16 +104,15 @@ function iss(pid,d,i){const p=P[pid],h=[],s=[];if(!p)return{h,s};
  const nth=Math.ceil(+d.slice(8)/7);if(p.nth.length&&!p.nth.includes(nth))h.push('Only Sunday '+p.nth.join('/')+' of month');
  for(const q of Object.keys(P))if(q!==pid&&on(d,q,-1)&&(P[q].avoid.includes(pid)||p.avoid.includes(q)))h.push('Avoid '+P[q].name.split(/\s+/)[0]);
  p.partner.forEach(q=>{if(P[q]&&!on(d,q,-1))s.push('Wants '+P[q].name.split(/\s+/)[0])});return{h,s}}
-function saveMonth(){save();draw()}
-function draft(){const yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
+function draft(){if(!canEdit)return;const added={},yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
  for(const d of suns(ym)){const order=SL.map((_,i)=>i).filter(i=>!at(d,i)).sort((a,b)=>el(d,a).length-el(d,b).length);
   for(const i of order){const c=el(d,i);if(!c.length)continue;
    const sc=q=>cnt(q,yr)*10-(P[q].partner.some(x=>on(d,x,-1))?5:0)-(Object.keys(P).some(x=>P[x].partner.includes(q)&&on(d,x,-1))?5:0)+(P[q].roles.length)*0.5+Math.random()*3;
-   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0]}}saveMonth()}
+   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0];added[d+'|'+i]=c[0]}}pushRoster(added);draw()}
 /* ---------- views ---------- */
-function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+(Object.keys(R).length?'Your roster is saved, but names load after you sign in with Google (button above).':'No people yet. Sign in with Google to load the Sheet, or add people.')+'</div>';
+function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
  let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
- let h=`<div class="bar"><button data-a="draft">Auto-fill empty slots</button><button class="g" data-a="clear">Clear month</button><button data-a="pdf">Download PDF</button><span class="sub">${n} empty slot${n==1?'':'s'}</span></div>`;
+ let h=`<div class="bar"><button data-a="draft">Auto-fill empty slots</button><button class="g" data-a="clear">Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span></div>`;
  for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table>`;
   SL.forEach((r,i)=>{const cur=at(d,i),x=cur&&P[cur]?iss(cur,d,i):{h:[],s:[]};
    const o=ids().map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
@@ -125,13 +131,18 @@ function vPeople(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summary>$
  <div class="bar" style="margin:8px 0 0">${chk('partner',p,q)}${chk('avoid',p,q)}</div>
  <div style="margin-top:6px"><span class="sub">Only these Sundays of the month (none ticked = any): </span>${[1,2,3,4,5].map(n=>`<label class="k"><input type="checkbox" data-a="nth" data-n="${n}" data-p="${q}"${p.nth.includes(n)?' checked':''}> ${n}</label>`).join('')}</div>
  <input style="width:100%;margin-top:8px" placeholder="Remarks" data-a="pf" data-f="remarks" data-p="${q}" value="${esc(p.remarks)}"></section>`});return h}
-function draw(){const today=new Date().toISOString().slice(0,7);
+function draw(){
+ if(!authReady){$('#app').innerHTML='<div class="empty">Loading…</div>';return}
+ const bn=note?`<div class="ban">${esc(note)}</div>`:'';
+ if(!user){$('#app').innerHTML=bn+'<section class="empty"><p>Sign in with the Google account your leaders added.</p><div class="bar" style="justify-content:center"><button data-a="login">Sign in with Google</button></div></section>';return}
+ if(denied){$('#app').innerHTML=bn+`<section class="empty"><p>No access for <b>${esc(user.email)}</b>.</p><p class="sub">Ask a leader to add this email to the access list.</p><div class="bar" style="justify-content:center"><button data-a="logout">Sign out</button></div></section>`;return}
+ const today=new Date().toISOString().slice(0,7);
  const ms=[...new Set([...Object.values(P).flatMap(p=>Object.keys(p.avail)),...Object.keys(R)].map(k=>k.slice(0,7)))].sort();if(!ms.length)ms.push(today);
  if(!ym||!ms.includes(ym))ym=ms.includes(today)?today:ms[0];
  const mo=ms.map(m=>`<option value="${m}"${m===ym?' selected':''}>${MN[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join('');
  const T=[['roster','Roster'],['avail','Availability'],['people','People']];
- const st=syncErr?syncErr:syncAt?'Synced from Google Sheet at '+syncAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'.':'Not connected to the Google Sheet yet. Saved data is shown.';
- $('#app').innerHTML=(note?`<div class="ban">${esc(note)}</div>`:'')+`<div class="bar"><span class="sub" style="margin:0">${esc(st)}</span><button class="g" data-a="sync">${tok&&Date.now()<tokExp?'Sync now':'Sign in with Google'}</button><button class="g" data-a="bk">Backup</button><button class="g" data-a="rs">Restore</button></div><nav>${T.map(t=>`<button data-a="tab" data-t="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('')}<select data-a="month" style="margin-left:auto">${mo}</select></nav>`+(tab==='roster'?vRoster():tab==='avail'?vAvail():vPeople())}
+ const st=syncErr?syncErr:syncAt?'Sheet synced '+syncAt.toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Sheet not synced yet';
+ $('#app').innerHTML=bn+`<div class="bar"><span class="sub" style="margin:0">${esc(user.email)} · ${canEdit?'Editor':'View only'} · ${esc(st)}</span>${canEdit?'<button class="g" data-a="sync">Sync Sheet</button>':''}${tab==='roster'?'<button class="g" data-a="pdf">Download PDF</button>':''}<button class="g" data-a="logout">Sign out</button></div><nav>${T.map(t=>`<button data-a="tab" data-t="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('')}<select data-a="month" style="margin-left:auto">${mo}</select></nav><fieldset${canEdit?'':' disabled'} style="border:0;padding:0;margin:0;min-width:0">`+(tab==='roster'?vRoster():tab==='avail'?vAvail():vPeople())+'</fieldset>'}
 /* ---------- PDF (canvas → JPEG → PDF, so Chinese names render) ---------- */
 function sheetCanvas(){const mons=[...new Set(Object.keys(R).map(k=>k.slice(0,7)))].sort();if(!mons.length)mons.push(ym);
  const cw=[110,...SL.map(()=>140)],W=cw.reduce((a,b)=>a+b,0),HH=48,RH=48,xs=[0];cw.forEach(w=>xs.push(xs[xs.length-1]+w));
@@ -159,24 +170,29 @@ async function makePdf(){const cv=sheetCanvas(),blob=await new Promise(r=>cv.toB
  push(e(xr+'trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n'+xp+'\n%%EOF'));return new Blob(parts,{type:'application/pdf'})}
 /* ---------- events ---------- */
 document.addEventListener('click',async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
- if(a==='tab'){tab=b.dataset.t;draw()}else if(a==='draft')draft();
- else if(a==='clear'){Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);saveMonth()}
+ if(a==='login')login();else if(a==='logout')auth.signOut();
+ else if(a==='tab'){tab=b.dataset.t;note='';draw()}else if(a==='draft')draft();
+ else if(a==='clear')clearMonth();
  else if(a==='sync'){tok&&Date.now()<tokExp?syncNow():signIn()}
  else if(a==='pdf'){try{dlBlob(await makePdf(),'PnW-schedule.pdf')}catch(x){note='Couldn’t create the PDF.';draw()}}
- else if(a==='bk')dlBlob(new Blob([JSON.stringify(snap())],{type:'application/json'}),'pnw-backup.json')
- else if(a==='rs')restore()
  else if(a==='av'){const id=b.dataset.p,d=b.dataset.d,cur=P[id].avail[d]||'',nx={'':'Y',Y:'N',N:'B',B:''}[cur],base=(SH[id]&&SH[id].avail[d])||'',ov=Object.assign({},(DB[id]||{}).ov);nx===base?delete ov[d]:ov[d]=nx;patch(id,{ov})}
  else if(a==='new')patch('p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),{name:'New person',roles:[],max:3,partner:[],avoid:[],ov:{}});
- else if(a==='del'){const q=b.dataset.p;if(arm!==q){arm=q;draw();return}arm='';delete DB[q];save();rebuild();draw()}});
+ else if(a==='del'){const q=b.dataset.p;if(arm!==q){arm=q;draw();return}arm='';delete DB[q];if(canEdit)fs.collection('people').doc(q).delete().catch(fail);rebuild();draw()}});
 document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)return;const id=t.dataset.p;
  if(a==='month'){ym=t.value;draw()}
- else if(a==='set'){t.value?R[t.dataset.k]=t.value:delete R[t.dataset.k];saveMonth()}
+ else if(a==='set')slot(t.dataset.k,t.value)
  else if(a==='pf'){const f=t.dataset.f;patch(id,{[f]:f==='max'?Math.max(1,+t.value||3):t.value})}
  else if(a==='role'){const s=new Set(P[id].roles);t.checked?s.add(t.dataset.r):s.delete(t.dataset.r);patch(id,{roles:[...s]})}
  else if(a==='pm'){const f=t.dataset.f,s=new Set(P[id][f]);od=id+f;t.checked?s.add(t.dataset.o):s.delete(t.dataset.o);patch(id,{[f]:[...s]})}
  else if(a==='nth'){const s=new Set(P[id].nth),n=+t.dataset.n;t.checked?s.add(n):s.delete(n);patch(id,{nth:[...s].sort()})}});
 /* ---------- start ---------- */
-document.getElementById('rsf').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;try{applyBackup(JSON.parse(await f.text()));note=Object.keys(P).length?'Backup restored.':'Backup restored. Sign in with Google to show the names.'}catch(x){note='That file isn’t a valid backup.'}draw()});
-load();rebuild();draw();
-setInterval(()=>{if(tok&&Date.now()<tokExp)syncNow()},60000);
+draw();
+auth.onAuthStateChanged(u=>{unsub.forEach(f=>f());unsub=[];user=u;authReady=true;canEdit=false;denied=false;
+ if(!u){P={};R={};DB={};SH={};RL={};draw();return}
+ const err=e=>{if(e&&e.code==='permission-denied')denied=true;else note='Connection problem. Reload the page.';draw()};
+ unsub.push(fs.collection('config').doc('access').onSnapshot(()=>{canEdit=true;draw()},()=>{canEdit=false;draw()}));
+ unsub.push(fs.collection('people').onSnapshot(q=>{denied=false;DB={};q.docs.forEach(d=>DB[d.id]=d.data());rebuild();draw()},err));
+ unsub.push(fs.collection('roster').onSnapshot(q=>{R={};q.docs.forEach(d=>Object.assign(R,d.data().a||{}));draw()},err));
+ unsub.push(fs.collection('sheet').doc('latest').onSnapshot(d=>{if(d.exists){const j=d.data();SH=j.SH||{};RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.at?new Date(j.at):null;rebuild();draw()}},()=>{}));
+ draw()});
 </script></body></html>

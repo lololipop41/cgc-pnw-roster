@@ -1,42 +1,76 @@
-# PnW Serving Scheduler (GitHub Pages)
+# PnW Serving Scheduler (GitHub Pages + Firebase)
 
-Static web app. `index.html` is the whole app. Reads availability and roles from your Google Sheet (read-only) and keeps edits and rosters in your browser.
+Static web app. `index.html` is the whole app. Everyone who opens the link and signs in sees the same roster, and changes show up live for everyone.
 
-## 1. Publish on GitHub Pages
+## How it works
 
-1. Create a GitHub repo (for example `pnw-scheduler`).
-2. Add `index.html` to the repo root and commit.
-3. Repo → Settings → Pages → Build and deployment → Source: **Deploy from a branch**, Branch: **main**, folder **/(root)** → Save.
-4. Your site is `https://<your-username>.github.io/pnw-scheduler/`.
+- **Shared data:** people edits and rosters are stored in Firebase Firestore (project `cgc-pnw-roster`).
+- **Google Sheet:** an editor presses **Sync Sheet**. The app reads the first sheet plus the role tabs (`vocal_main`, `vocal_sub`, `piano`, `drum`, `bass`, `pa`, `ppt`), read-only, and saves a copy to Firestore so viewers see names and availability without Sheet access.
+- **Who can do what:** decided by the access list in Firestore (`config/access`). Editors can change things. Viewers can only look. Everyone else sees "No access".
+- **PDF:** the **Download PDF** button saves a landscape page like your sample.
 
-## 2. Allow Google Sheet access (one-time)
+## Publish
 
-The Sheet stays private. Each person signs in with their own Google account, and only people who can already open the Sheet can sync.
+1. Put `index.html` in the root of a GitHub repo.
+2. Settings → Pages → Deploy from a branch → `main` → `/(root)`.
+3. Firebase console → Authentication → Settings → Authorized domains → add `<your-username>.github.io`.
 
-1. Go to https://console.cloud.google.com and create a project.
-2. APIs & Services → Library → enable **Google Sheets API**.
-3. APIs & Services → OAuth consent screen → User type **External** → fill in the app name and your email → add the scope `.../auth/spreadsheets.readonly`.
-4. While the app is in **Testing**, add every team member's Google email under **Test users**.
-5. Credentials → Create credentials → **OAuth client ID** → Application type **Web application**.
-6. Authorized JavaScript origins: `https://<your-username>.github.io` (origin only, no path).
-7. Copy the Client ID and paste it into `index.html`:
+## Access list
 
-   ```js
-   const CLIENT_ID='1234567890-abc.apps.googleusercontent.com';
-   ```
+Firebase console → Firestore Database → Data → `config` → `access`:
 
-8. Commit. Open the site, click **Sign in with Google**, then it syncs. It refreshes every minute while you stay signed in (sign-in lasts about an hour).
+- `editors` (array of strings): lowercase Google emails who may edit.
+- `viewers` (array of strings): lowercase Google emails who may only view.
 
-The Client ID is not a secret. The app only reads the first sheet plus the tabs `vocal_main`, `vocal_sub`, `piano`, `drum`, `bass`, `pa`, `ppt`. The Google scope itself can't be limited to those tabs, so the limit is in the code.
+Change these any time. No code change needed.
 
-## 3. Saved data
+## Firestore rules
 
-- Edits (availability changes, roles, partners, remarks) and rosters are saved in **this browser** (`localStorage`).
-- They are **not shared** between people or devices. Use **Backup** to download a JSON file and **Restore** to load it on another browser.
-- The last Sheet data (names, roles, availability) is also saved, so the roster still shows names when you are signed out or offline. Backups include it too.
-- Clearing site data erases them, so back up before big changes.
-- For one shared roster across the team you need a small backend (for example Firebase, Supabase or a Google Apps Script). Ask if you want that added.
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
 
-## 4. PDF
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function access() {
+      return get(/databases/$(database)/documents/config/access).data;
+    }
+    function isEditor() {
+      return signedIn() && request.auth.token.email in access().editors;
+    }
+    function isViewer() {
+      return isEditor() || (signedIn() && request.auth.token.email in access().viewers);
+    }
 
-**Download PDF** saves a landscape page that looks like your sample table. It is an image of the table so Chinese names render everywhere.
+    match /config/{doc} {
+      allow read: if isEditor();
+      allow write: if false;
+    }
+    match /people/{id} {
+      allow read: if isViewer();
+      allow write: if isEditor();
+    }
+    match /roster/{id} {
+      allow read: if isViewer();
+      allow write: if isEditor();
+    }
+    match /sheet/{id} {
+      allow read: if isViewer();
+      allow write: if isEditor();
+    }
+  }
+}
+```
+
+## Google Sheet access (editors)
+
+The Sheet stays private. Each editor must be able to open the Sheet with their Google account. Sync Sheet uses the OAuth Client ID set as `CLIENT_ID` in `index.html`. In the Google Cloud project that owns that Client ID: enable the Google Sheets API, add the scope `https://www.googleapis.com/auth/spreadsheets.readonly` on the OAuth consent screen, add editors as Test users while the app is in Testing, and add `https://<your-username>.github.io` under the client's Authorized JavaScript origins.
+
+## Notes
+
+- Two people changing the same slot at once: the last save wins. Different slots do not overwrite each other.
+- Data from the old browser-only version is not moved over. Re-create it, or use Auto-fill.
+- The Firebase config in `index.html` is not secret. The rules above protect the data.
+- Free Spark plan limits: 50,000 reads and 20,000 writes per day. A small team stays far below this.
