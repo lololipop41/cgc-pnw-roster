@@ -48,7 +48,7 @@ function suns(s){const[y,m]=s.split('-').map(Number),o=[],t=new Date(Date.UTC(y,
 const at=(d,i)=>R[d+'|'+i];
 const on=(d,p,skip)=>SL.some((_,i)=>i!==skip&&at(d,i)===p);
 const cnt=(p,pre,sk)=>Object.keys(R).filter(k=>k.startsWith(pre)&&R[k]===p&&k!==sk).length;
-const ids=()=>Object.keys(P).sort((a,b)=>P[a].name.localeCompare(P[b].name,'zh'));
+const ids=()=>Object.keys(P).sort((a,b)=>{const x=P[a].ord,y=P[b].ord,hx=x!=null,hy=y!=null;if(hx&&hy)return x-y;if(hx!==hy)return hx?-1:1;return P[a].name.localeCompare(P[b].name,'zh')});
 const p2=n=>String(n).padStart(2,'0'),h12=h=>p2(h%12||12),ap=h=>h<12?'am':'pm';
 const fmtDay=t=>{const d=new Date(t);return d.getFullYear()+'/'+p2(d.getMonth()+1)+'/'+p2(d.getDate())};
 const fmtU=t=>{const d=new Date(t);return fmtDay(t)+' '+h12(d.getHours())+':'+p2(d.getMinutes())+' '+ap(d.getHours())};
@@ -75,7 +75,7 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
  const out={};
  for(let r=3;r<v.length;r++){const row=v[r]||[],nm=(row[0]||'').trim();if(!nm)break;
   const av={};cols.forEach(([j,d])=>{const c=(row[j]||'').trim().toLowerCase();if(c==='yes')av[d]='Y';else if(c==='no')av[d]='N'});
-  const rem=(row[rc]||'').trim();out['s'+hash(nm.split(/\s+/)[0])]={name:nm,avail:av,remarks:rem,roles:inferRoles(rem),partner:[]}}
+  const rem=(row[rc]||'').trim();out['s'+hash(nm.split(/\s+/)[0])]={name:nm,avail:av,remarks:rem,roles:inferRoles(rem),partner:[],ord:r}}
  Object.keys(out).forEach(id=>out[id].partner=guessPartners(id,out));return out}
 /* ---------- Firebase (shared data) ---------- */
 const firebaseConfig={apiKey:"AIzaSyAOqbTsQoYGubByF3PakBIN6VekjM5vjFc",authDomain:"cgc-pnw-roster.firebaseapp.com",projectId:"cgc-pnw-roster",storageBucket:"cgc-pnw-roster.firebasestorage.app",messagingSenderId:"477625768421",appId:"1:477625768421:web:5cff5214c1fefe23dcb70c"};
@@ -120,7 +120,7 @@ async function syncNow(){if(!tok||Date.now()>tokExp){tok=null;signIn();return}sy
   fs.collection('sheet').doc('latest').set(clean({SH,RL,rolesOk:true,at:Date.now()})).catch(fail);log(TL[tab],'Sync Sheet');draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
 /* ---------- merge sheet + saved edits ---------- */
 function rebuild(){P={};new Set([...Object.keys(SH),...Object.keys(DB)]).forEach(id=>{const s=SH[id],d=DB[id]||{};if(!s&&!d.name)return;
- P[id]={sheet:!!s,name:s?s.name:d.name,remarks:d.remarks!=null?d.remarks:(s?s.remarks:''),roles:d.roles||(s?(rolesOk?(RL[id]||[]):s.roles):[]),partner:d.partner||(s?s.partner:[]),avoid:d.avoid||[],max:d.max||3,nth:d.nth||[],avail:Object.assign({},s?s.avail:{},d.ov||{})}})}
+ P[id]={sheet:!!s,ord:s?s.ord:null,name:s?s.name:d.name,remarks:d.remarks!=null?d.remarks:(s?s.remarks:''),roles:d.roles||(s?(rolesOk?(RL[id]||[]):s.roles):[]),partner:d.partner||(s?s.partner:[]),avoid:d.avoid||[],max:d.max||3,nth:d.nth||[],avail:Object.assign({},s?s.avail:{},d.ov||{})}})}
 function patch(id,o){if(!canEdit)return;DB[id]=Object.assign({},DB[id],o);fs.collection('people').doc(id).set(clean(DB[id])).catch(fail);rebuild();draw()}
 /* ---------- rules ---------- */
 function iss(pid,d,i){const p=P[pid],h=[],s=[];if(!p)return{h,s};
