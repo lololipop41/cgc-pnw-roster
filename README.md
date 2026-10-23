@@ -7,7 +7,11 @@ Static web app. `index.html` is the whole app. Everyone who opens the link and s
 - **Shared data:** people edits and rosters are stored in Firebase Firestore (project `cgc-pnw-roster`).
 - **Google Sheet:** an editor presses **Sync Sheet**. The app reads the first sheet plus the role tabs (`vocal_main`, `vocal_sub`, `piano`, `drum`, `bass`, `pa`, `ppt`), read-only, and saves a copy to Firestore so viewers see names and availability without Sheet access.
 - **Who can do what:** decided by the access list in Firestore (`config/access`). Editors can change things. Viewers can only look. Everyone else sees "No access".
-- **PDF:** the **Download PDF** button saves a landscape page like your sample.
+- **Roster tab:** opens on the current month each time you click it. Use the month box to move to another month.
+- **People tab:** the search box filters the list as you type.
+- **Preview tab:** pick one or more months. The table shown is exactly what **Export As** (PDF or JPG) saves. The bottom right shows `Updated at:` with the time of the last roster change.
+- **Show Changes:** the first export of a month is saved as version 1. After later edits, tick Show Changes to highlight names that differ from the last export. Exporting again saves a new version.
+- **Log tab (editors only):** who did what, grouped by date. Click a date to open it.
 
 ## Publish
 
@@ -59,6 +63,15 @@ service cloud.firestore {
     match /sheet/{id} {
       allow read: if isViewer();
       allow write: if isEditor();
+    }
+    match /baseline/{id} {
+      allow read: if isViewer();
+      allow write: if isEditor();
+    }
+    match /logs/{id} {
+      allow read: if isEditor();
+      allow create: if isEditor();
+      allow update, delete: if false;
     }
   }
 }

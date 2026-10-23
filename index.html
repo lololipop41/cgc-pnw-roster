@@ -20,6 +20,9 @@ table{border-collapse:collapse;width:100%}td,th{padding:4px 6px;text-align:left;
 .cY{background:var(--okb);color:var(--ok)}.cN{background:var(--rdb);color:var(--rd)}.cB{background:var(--wnb);color:var(--wn)}.ed{outline:2px solid var(--ac)}
 .empty{padding:30px;text-align:center;color:var(--mu)}.ban{background:var(--wnb);color:var(--wn);padding:8px 12px;border-radius:8px;margin-bottom:12px}
 label.k{margin-right:8px;white-space:nowrap;font-size:13px}details{margin:6px 0}summary{cursor:pointer;color:var(--mu);font-size:13px}.tag{font-size:11px;color:var(--ac);border:1px solid var(--ac);border-radius:99px;padding:0 6px}
+.dd{position:relative;display:inline-block}.ddm{position:absolute;left:0;top:100%;margin-top:4px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;min-width:120px;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+.ddm button{display:block;width:100%;text-align:left;border:0;background:none;color:var(--tx);padding:9px 14px;font:inherit;cursor:pointer}.ddm button:hover{background:var(--bg)}
+.dayh{background:none;border:0;color:var(--tx);font:inherit;font-weight:600;cursor:pointer;padding:0;text-align:left}.loglist{margin-top:8px}.ll{font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -40,6 +43,14 @@ const at=(d,i)=>R[d+'|'+i];
 const on=(d,p,skip)=>SL.some((_,i)=>i!==skip&&at(d,i)===p);
 const cnt=(p,pre,sk)=>Object.keys(R).filter(k=>k.startsWith(pre)&&R[k]===p&&k!==sk).length;
 const ids=()=>Object.keys(P).sort((a,b)=>P[a].name.localeCompare(P[b].name,'zh'));
+const p2=n=>String(n).padStart(2,'0'),h12=h=>p2(h%12||12),ap=h=>h<12?'am':'pm';
+const fmtDay=t=>{const d=new Date(t);return d.getFullYear()+'/'+p2(d.getMonth()+1)+'/'+p2(d.getDate())};
+const fmtU=t=>{const d=new Date(t);return fmtDay(t)+' '+h12(d.getHours())+':'+p2(d.getMinutes())+' '+ap(d.getHours())};
+const fmtDT=t=>{const d=new Date(t);return fmtDay(t)+' '+h12(d.getHours())+':'+p2(d.getMinutes())+':'+p2(d.getSeconds())+ap(d.getHours())};
+const ord=n=>n+(n%10==1&&n!=11?'st':n%10==2&&n!=12?'nd':n%10==3&&n!=13?'rd':'th');
+const monLabel=m=>MN[+m.slice(5,7)-1]+' '+m.slice(0,4);
+const curMonth=()=>{const d=new Date();return d.getFullYear()+'-'+p2(d.getMonth()+1)};
+const TL={roster:'Roster',avail:'Availability',people:'People',preview:'Preview',log:'Log'},LB={Y:'Yes',N:'No',B:'Busy','':'blank'};
 const hash=s=>{let h=0;for(const c of s)h=(h*31+c.codePointAt(0))>>>0;return h.toString(36)};
 /* ---------- sheet parsing (view only, first sheet) ---------- */
 function inferRoles(t){t=(t||'').replace(/青团\S*/g,'');const T=t.toLowerCase(),r=[];
@@ -63,14 +74,24 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
 /* ---------- Firebase (shared data) ---------- */
 const firebaseConfig={apiKey:"AIzaSyAOqbTsQoYGubByF3PakBIN6VekjM5vjFc",authDomain:"cgc-pnw-roster.firebaseapp.com",projectId:"cgc-pnw-roster",storageBucket:"cgc-pnw-roster.firebasestorage.app",messagingSenderId:"477625768421",appId:"1:477625768421:web:5cff5214c1fefe23dcb70c"};
 const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
-let user=null,canEdit=false,denied=false,authReady=false,unsub=[];
+let user=null,canEdit=false,denied=false,authReady=false,unsub=[],RU={},BL={},LG=[],logOpen=new Set(),pvSel=null,showCh=false,ddOpen=false,pq='',pqRaw='',logOn=false;
 firebase.initializeApp(firebaseConfig);const auth=firebase.auth(),fs=firebase.firestore(),FV=firebase.firestore.FieldValue;
 const clean=o=>JSON.parse(JSON.stringify(o));
 const fail=()=>{note='Couldn’t save. You may not have edit access, or you are offline.';draw()};
+const uid=()=>user&&user.email?user.email.split('@')[0]:'unknown';
+function log(tabName,msg){if(!canEdit)return;fs.collection('logs').add({t:Date.now(),u:uid(),tab:tabName,msg}).catch(()=>{})}
+function startLog(){if(logOn)return;logOn=true;unsub.push(fs.collection('logs').orderBy('t','desc').limit(500).onSnapshot(q=>{LG=q.docs.map(d=>d.data());draw()},()=>{}))}
+const pvList=()=>(pvSel||[curMonth()]).slice().sort();
 function dlBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
-function slot(k,v){if(!canEdit)return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()}},{merge:true}).catch(fail);draw()}
-function pushRoster(added){const by={};Object.keys(added).forEach(k=>{const m=k.slice(0,7);(by[m]=by[m]||{})[k]=added[k]});Object.keys(by).forEach(m=>fs.collection('roster').doc('m'+m).set({a:by[m]},{merge:true}).catch(fail))}
-function clearMonth(){if(!canEdit)return;Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);fs.collection('roster').doc('m'+ym).set({a:{}}).catch(fail);draw()}
+async function doExport(kind){ddOpen=false;const ms=pvList();if(!ms.length){note='Pick at least one month.';draw();return}
+ const cv=sheetCanvas(ms,showCh);
+ try{if(kind==='pdf')dlBlob(await makePdf(cv),'PnW-schedule.pdf');else dlBlob(await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),'PnW-schedule.jpg')}catch(x){note='Couldn’t create the file.';draw();return}
+ if(canEdit){ms.forEach(m=>{const a={};Object.keys(R).filter(k=>k.startsWith(m)).forEach(k=>a[k]=R[k]);fs.collection('baseline').doc('m'+m).set({a,v:((BL[m]&&BL[m].v)||0)+1,at:Date.now()}).catch(fail)});
+  log('Preview','Exported as '+kind.toUpperCase()+' ('+ms.map(monLabel).join(', ')+')')}
+ draw()}
+function slot(k,v){if(!canEdit)return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()},u:Date.now()},{merge:true}).catch(fail);RU[k.slice(0,7)]=Date.now();draw()}
+function pushRoster(added){const by={};Object.keys(added).forEach(k=>{const m=k.slice(0,7);(by[m]=by[m]||{})[k]=added[k]});Object.keys(by).forEach(m=>{RU[m]=Date.now();fs.collection('roster').doc('m'+m).set({a:by[m],u:Date.now()},{merge:true}).catch(fail)})}
+function clearMonth(){if(!canEdit)return;Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);fs.collection('roster').doc('m'+ym).set({a:{},u:Date.now()}).catch(fail);RU[ym]=Date.now();log('Roster','Clear month ('+monLabel(ym)+')');draw()}
 function login(){note='';auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e=>{if(e.code!=='auth/popup-closed-by-user'&&e.code!=='auth/cancelled-popup-request'){note='Sign-in failed ('+e.code+'). Check that this website is in Firebase → Authentication → Authorized domains.';draw()}})}
 /* ---------- Google Sheet (read-only, editors only) ---------- */
 const CLIENT_ID='436484108503-nrfm7luig664frpnaos0iv6fmp9uukon.apps.googleusercontent.com';
@@ -89,7 +110,7 @@ async function syncNow(){if(!tok||Date.now()>tokExp){tok=null;signIn();return}sy
   const vr=(await res.json()).valueRanges||[];const sh=parseSheet((vr[0]&&vr[0].values)||[]),m={};
   names.forEach((t,i)=>((vr[i+1]&&vr[i+1].values)||[]).slice(1).forEach(row=>{const cn=((row&&row[0])||'').trim().split(/\s+/)[0];if(!cn)return;const id='s'+hash(cn);(m[id]=m[id]||[]).push(TABS[t])}));
   SH=sh;RL=m;rolesOk=true;syncAt=new Date();rebuild();
-  fs.collection('sheet').doc('latest').set(clean({SH,RL,rolesOk:true,at:Date.now()})).catch(fail);draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
+  fs.collection('sheet').doc('latest').set(clean({SH,RL,rolesOk:true,at:Date.now()})).catch(fail);log(TL[tab],'Sync Sheet');draw()}catch(e){syncErr='Sync failed. Check your connection and the Sheet layout, then try again.';draw()}}
 /* ---------- merge sheet + saved edits ---------- */
 function rebuild(){P={};new Set([...Object.keys(SH),...Object.keys(DB)]).forEach(id=>{const s=SH[id],d=DB[id]||{};if(!s&&!d.name)return;
  P[id]={sheet:!!s,name:s?s.name:d.name,remarks:d.remarks!=null?d.remarks:(s?s.remarks:''),roles:d.roles||(s?(rolesOk?(RL[id]||[]):s.roles):[]),partner:d.partner||(s?s.partner:[]),avoid:d.avoid||[],max:d.max||3,nth:d.nth||[],avail:Object.assign({},s?s.avail:{},d.ov||{})}})}
@@ -108,7 +129,7 @@ function draft(){if(!canEdit)return;const added={},yr=ym.slice(0,4),el=(d,i)=>Ob
  for(const d of suns(ym)){const order=SL.map((_,i)=>i).filter(i=>!at(d,i)).sort((a,b)=>el(d,a).length-el(d,b).length);
   for(const i of order){const c=el(d,i);if(!c.length)continue;
    const sc=q=>cnt(q,yr)*10-(P[q].partner.some(x=>on(d,x,-1))?5:0)-(Object.keys(P).some(x=>P[x].partner.includes(q)&&on(d,x,-1))?5:0)+(P[q].roles.length)*0.5+Math.random()*3;
-   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0];added[d+'|'+i]=c[0]}}pushRoster(added);draw()}
+   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0];added[d+'|'+i]=c[0]}}pushRoster(added);log('Roster','Auto-filled empty slots ('+monLabel(ym)+')');draw()}
 /* ---------- views ---------- */
 function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
  let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
@@ -123,32 +144,44 @@ function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">
 function vAvail(){const ds=suns(ym);if(!ids().length)return'<div class="empty">No people yet.</div>';const L={Y:'Yes',N:'No',B:'Busy','':'·'};
  let h='<p class="n">Values come from the Sheet. Tap a cell to change it (Yes → No → Busy → blank). Changed cells have a blue outline and stay in the app; the Sheet is never edited.</p><div class="sc"><table><tr><th>Name</th>'+ds.map(d=>`<th>${fmt(d)}</th>`).join('')+'</tr>';
  ids().forEach(q=>{const ov=(DB[q]||{}).ov||{};h+=`<tr><td>${esc(P[q].name)}</td>`+ds.map(d=>{const v=P[q].avail[d]||'';return`<td><button class="c c${v}${d in ov?' ed':''}" data-a="av" data-p="${q}" data-d="${d}">${L[v]}</button></td>`}).join('')+'</tr>'});return h+'</table></div>'}
-function vPeople(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summary>${f==='partner'?'Prefers to serve with':'Never serves with'} (${p[f].length})</summary>${ids().filter(x=>x!==q).map(x=>`<label class="k"><input type="checkbox" data-a="pm" data-f="${f}" data-o="${x}" data-p="${q}"${p[f].includes(x)?' checked':''}> ${esc(P[x].name)}</label>`).join('')}</details>`;
- let h='<div class="bar"><button data-a="new">+ Add person</button></div><p class="n">Roles come from the role tabs in the Sheet (vocal_main, vocal_sub, piano, drum, bass, pa, ppt). Partners are guessed from Remarks. Fix anything here; your changes are kept.</p>';
+function vPeople(){return'<div class="bar"><button data-a="new">+ Add person</button></div><p class="n">Roles come from the role tabs in the Sheet (vocal_main, vocal_sub, piano, drum, bass, pa, ppt). Partners are guessed from Remarks. Fix anything here; your changes are kept.</p><div id="plist">'+peopleList()+'</div>'}
+function peopleList(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summary>${f==='partner'?'Prefers to serve with':'Never serves with'} (${p[f].length})</summary>${ids().filter(x=>x!==q).map(x=>`<label class="k"><input type="checkbox" data-a="pm" data-f="${f}" data-o="${x}" data-p="${q}"${p[f].includes(x)?' checked':''}> ${esc(P[x].name)}</label>`).join('')}</details>`;
+ let h='';
  if(!ids().length)return h+'<div class="empty">No one yet.</div>';
- ids().forEach(q=>{const p=P[q];h+=`<section><div class="bar"><input data-a="pf" data-f="name" data-p="${q}" value="${esc(p.name)}" aria-label="Name"${p.sheet?' disabled':''}>${p.sheet?'<span class="tag">from Sheet</span>':''}${p.sheet&&!p.roles.length?'<span class="tag" style="color:var(--wn);border-color:var(--wn)">no role in Sheet</span>':''}<label class="k">Max/month <input type="number" min="1" max="5" style="width:56px" data-a="pf" data-f="max" data-p="${q}" value="${p.max}"></label><button class="g" data-a="del" data-p="${q}">${arm===q?'Sure? Tap again':p.sheet?'Reset my edits':'Remove'}</button></div>
+ ids().filter(q=>!pq||P[q].name.toLowerCase().includes(pq)).forEach(q=>{const p=P[q];h+=`<section><div class="bar"><input data-a="pf" data-f="name" data-p="${q}" value="${esc(p.name)}" aria-label="Name"${p.sheet?' disabled':''}>${p.sheet?'<span class="tag">from Sheet</span>':''}${p.sheet&&!p.roles.length?'<span class="tag" style="color:var(--wn);border-color:var(--wn)">no role in Sheet</span>':''}<label class="k">Max/month <input type="number" min="1" max="5" style="width:56px" data-a="pf" data-f="max" data-p="${q}" value="${p.max}"></label><button class="g" data-a="del" data-p="${q}">${arm===q?'Sure? Tap again':p.sheet?'Reset my edits':'Remove'}</button></div>
  <div>${ROLES.map(r=>`<label class="k"><input type="checkbox" data-a="role" data-r="${r}" data-p="${q}"${p.roles.includes(r)?' checked':''}> ${r}</label>`).join('')}</div>
  <div class="bar" style="margin:8px 0 0">${chk('partner',p,q)}${chk('avoid',p,q)}</div>
  <div style="margin-top:6px"><span class="sub">Only these Sundays of the month (none ticked = any): </span>${[1,2,3,4,5].map(n=>`<label class="k"><input type="checkbox" data-a="nth" data-n="${n}" data-p="${q}"${p.nth.includes(n)?' checked':''}> ${n}</label>`).join('')}</div>
- <input style="width:100%;margin-top:8px" placeholder="Remarks" data-a="pf" data-f="remarks" data-p="${q}" value="${esc(p.remarks)}"></section>`});return h}
+ <input style="width:100%;margin-top:8px" placeholder="Remarks" data-a="pf" data-f="remarks" data-p="${q}" value="${esc(p.remarks)}"></section>`});return h||'<div class="empty">No one matches “'+esc(pqRaw)+'”.</div>'}
+function vPreview(ms){const sel=pvList();
+ const info=showCh?'<p class="n">Highlights names changed since the last export. '+sel.map(m=>monLabel(m)+': '+(BL[m]?'compared with v'+(BL[m].v||1):'no earlier export yet')).join(' · ')+'</p>':'';
+ return'<section><h3>Months to preview</h3><div>'+ms.map(m=>`<label class="k"><input type="checkbox" data-a="pvm" data-m="${m}"${sel.includes(m)?' checked':''}> ${monLabel(m)}</label>`).join('')+'</div><div class="bar" style="margin:10px 0 0"><label class="k"><input type="checkbox" data-a="chg"'+(showCh?' checked':'')+'> Show Changes</label><span class="dd"><button data-a="dd">Export As ▾</button>'+(ddOpen?'<div class="ddm"><button data-a="exp" data-k="pdf">PDF</button><button data-a="exp" data-k="jpg">JPG</button></div>':'')+'</span></div>'+info+'</section>'+(sel.length?'<div class="sc" id="pv"></div>':'<div class="empty">Pick at least one month.</div>')}
+function vLog(){if(!LG.length)return'<div class="empty">No activity yet.</div>';const g={};LG.forEach(x=>{const d=fmtDay(x.t);(g[d]=g[d]||[]).push(x)});
+ return Object.keys(g).sort().reverse().map(d=>`<section><button class="dayh" data-a="logday" data-d="${d}">${logOpen.has(d)?'▾':'▸'} ${d} <span class="sub">(${g[d].length})</span></button>${logOpen.has(d)?'<div class="loglist">'+g[d].slice().reverse().map(x=>`<div class="ll">${esc(fmtDT(x.t)+' ['+x.u+'] '+x.tab+': '+x.msg)}</div>`).join('')+'</div>':''}</section>`).join('')}
 function draw(){
  if(!authReady){$('#app').innerHTML='<div class="empty">Loading…</div>';return}
  const bn=note?`<div class="ban">${esc(note)}</div>`:'';
  if(!user){$('#app').innerHTML=bn+'<section class="empty"><p>Sign in with the Google account your leaders added.</p><div class="bar" style="justify-content:center"><button data-a="login">Sign in with Google</button></div></section>';return}
  if(denied){$('#app').innerHTML=bn+`<section class="empty"><p>No access for <b>${esc(user.email)}</b>.</p><p class="sub">Ask a leader to add this email to the access list.</p><div class="bar" style="justify-content:center"><button data-a="logout">Sign out</button></div></section>`;return}
- const today=new Date().toISOString().slice(0,7);
- const ms=[...new Set([...Object.values(P).flatMap(p=>Object.keys(p.avail)),...Object.keys(R)].map(k=>k.slice(0,7)))].sort();if(!ms.length)ms.push(today);
- if(!ym||!ms.includes(ym))ym=ms.includes(today)?today:ms[0];
- const mo=ms.map(m=>`<option value="${m}"${m===ym?' selected':''}>${MN[+m.slice(5)-1]} ${m.slice(0,4)}</option>`).join('');
- const T=[['roster','Roster'],['avail','Availability'],['people','People']];
+ const today=curMonth();
+ const ms=[...new Set([...Object.values(P).flatMap(p=>Object.keys(p.avail)),...Object.keys(R)].map(k=>k.slice(0,7)).concat(today))].sort();
+ if(!ym||!ms.includes(ym))ym=today;
+ if(tab==='log'&&!canEdit)tab='roster';
+ const mo=ms.map(m=>`<option value="${m}"${m===ym?' selected':''}>${monLabel(m)}</option>`).join('');
+ const T=[['roster','Roster'],['avail','Availability'],['people','People'],['preview','Preview']];if(canEdit)T.push(['log','Log']);
  const st=syncErr?syncErr:syncAt?'Sheet synced '+syncAt.toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Sheet not synced yet';
- $('#app').innerHTML=bn+`<div class="bar"><span class="sub" style="margin:0">${esc(user.email)} · ${canEdit?'Editor':'View only'} · ${esc(st)}</span>${canEdit?'<button class="g" data-a="sync">Sync Sheet</button>':''}${tab==='roster'?'<button class="g" data-a="pdf">Download PDF</button>':''}<button class="g" data-a="logout">Sign out</button></div><nav>${T.map(t=>`<button data-a="tab" data-t="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('')}<select data-a="month" style="margin-left:auto">${mo}</select></nav><fieldset${canEdit?'':' disabled'} style="border:0;padding:0;margin:0;min-width:0">`+(tab==='roster'?vRoster():tab==='avail'?vAvail():vPeople())+'</fieldset>'}
+ const fsw=h=>`<fieldset${canEdit?'':' disabled'} style="border:0;padding:0;margin:0;min-width:0">${h}</fieldset>`;
+ const body=tab==='roster'?fsw(vRoster()):tab==='avail'?fsw(vAvail()):tab==='people'?`<input id="psearch" type="search" autocomplete="off" placeholder="Search name…" data-a="search" value="${esc(pqRaw)}" style="width:100%;margin-bottom:12px">`+fsw(vPeople()):tab==='preview'?vPreview(ms):vLog();
+ const ae=document.activeElement,keep=ae&&ae.id==='psearch'?[ae.selectionStart,ae.selectionEnd]:null;
+ $('#app').innerHTML=bn+`<div class="bar"><span class="sub" style="margin:0">${esc(user.email)} · ${canEdit?'Editor':'View only'} · ${esc(st)}</span>${canEdit?'<button class="g" data-a="sync">Sync Sheet</button>':''}<button class="g" data-a="logout">Sign out</button></div><nav>${T.map(t=>`<button data-a="tab" data-t="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('')}${tab==='roster'||tab==='avail'?`<select data-a="month" style="margin-left:auto">${mo}</select>`:''}</nav>`+body;
+ if(tab==='preview'){const host=document.getElementById('pv');if(host){const cv=sheetCanvas(pvList(),showCh);cv.style.cssText='width:100%;min-width:760px;height:auto;display:block';host.appendChild(cv)}}
+ if(keep){const el=document.getElementById('psearch');if(el){el.focus();try{el.setSelectionRange(keep[0],keep[1])}catch(e){}}}}
 /* ---------- PDF (canvas → JPEG → PDF, so Chinese names render) ---------- */
-function sheetCanvas(){const mons=[...new Set(Object.keys(R).map(k=>k.slice(0,7)))].sort();if(!mons.length)mons.push(ym);
- const cw=[110,...SL.map(()=>140)],W=cw.reduce((a,b)=>a+b,0),HH=48,RH=48,xs=[0];cw.forEach(w=>xs.push(xs[xs.length-1]+w));
- const rows=[];mons.forEach(m=>{rows.push({b:MN[+m.slice(5)-1]+' '+m.slice(0,4)});suns(m).forEach(d=>rows.push({d}))});
- const H=HH+rows.length*RH,S=2,cv=document.createElement('canvas');cv.width=W*S;cv.height=(H+4)*S;const c=cv.getContext('2d');c.scale(S,S);
- c.fillStyle='#fff';c.fillRect(0,0,W,H+4);c.translate(0,2);c.strokeStyle='#000';c.lineWidth=1.2;c.textAlign='center';c.textBaseline='middle';
+function sheetCanvas(mons,ch){
+ const cw=[110,...SL.map(()=>140)],W=cw.reduce((a,b)=>a+b,0),HH=48,RH=48,FH=46,xs=[0];cw.forEach(w=>xs.push(xs[xs.length-1]+w));
+ const rows=[];mons.forEach(m=>{rows.push({b:monLabel(m)});suns(m).forEach(d=>rows.push({d,m}))});
+ const H=HH+rows.length*RH,S=2,cv=document.createElement('canvas');cv.width=W*S;cv.height=(H+FH+4)*S;const c=cv.getContext('2d');c.scale(S,S);
+ c.fillStyle='#fff';c.fillRect(0,0,W,H+FH+4);c.translate(0,2);c.strokeStyle='#000';c.lineWidth=1.2;c.textAlign='center';c.textBaseline='middle';
  const F='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC","Heiti SC",sans-serif',ln=(x1,y1,x2,y2)=>{c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke()};
  c.fillStyle='#d9d9d9';c.fillRect(0,0,W,HH);c.fillStyle='#000';c.font='bold 22px '+F;
  const hd=['日期','领唱','助唱',null,'司琴','贝斯','鼓手','音响','PPT'];hd.forEach((t,i)=>{if(!t)return;const x2=t==='助唱'?xs[i+2]:xs[i+1];c.fillText(t,(xs[i]+x2)/2,HH/2)});
@@ -156,10 +189,16 @@ function sheetCanvas(){const mons=[...new Set(Object.keys(R).map(k=>k.slice(0,7)
  let y=HH;c.font='22px '+F;
  rows.forEach(r=>{if(r.b){c.fillStyle='#d9d9d9';c.fillRect(0,y,W,RH);c.fillStyle='#000';c.fillText(r.b,W/2,y+RH/2);ln(0,y,0,y+RH);ln(W,y,W,y+RH)}
   else{c.fillStyle='#000';c.fillText(+r.d.slice(8)+'-'+MN[+r.d.slice(5,7)-1],cw[0]/2,y+RH/2);
-   SL.forEach((_,i)=>{const q=at(r.d,i);if(q&&P[q])c.fillText(P[q].name.split(/\s+/)[0],xs[i+1]+cw[i+1]/2,y+RH/2)});xs.forEach(x=>ln(x,y,x,y+RH))}
-  ln(0,y+RH,W,y+RH);y+=RH});return cv}
-async function makePdf(){const cv=sheetCanvas(),blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),jpg=new Uint8Array(await blob.arrayBuffer());
- const pw=842,ph=595,m=28;let w=pw-2*m,h=w*cv.height/cv.width;if(h>ph-2*m){h=ph-2*m;w=h*cv.width/cv.height}
+   const bl=ch&&BL[r.m]&&BL[r.m].a;
+   SL.forEach((_,i)=>{const q=at(r.d,i),x=xs[i+1];if(bl&&q&&bl[r.d+'|'+i]!==q){c.fillStyle='#ffe066';c.fillRect(x+1,y+1,cw[i+1]-2,RH-2)}
+    c.fillStyle='#000';if(q&&P[q])c.fillText(P[q].name.split(/\s+/)[0],x+cw[i+1]/2,y+RH/2)});xs.forEach(x=>ln(x,y,x,y+RH))}
+  ln(0,y+RH,W,y+RH);y+=RH});
+ const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
+ c.font='15px '+F;c.fillStyle='#444';c.textAlign='right';c.fillText('Updated at: '+fmtU(upd),W-8,H+FH/2);
+ if(ch){c.textAlign='left';c.fillStyle='#8a6d00';c.fillText('Highlighted = changed since the last export',8,H+FH/2)}
+ return cv}
+async function makePdf(cv){const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),jpg=new Uint8Array(await blob.arrayBuffer());
+ const pw=842,m=28,w=pw-2*m,h=w*cv.height/cv.width,ph=Math.ceil(Math.max(595,h+2*m));
  const x=(pw-w)/2,y=ph-m-h,e=s=>new TextEncoder().encode(s),parts=[],off=[];let len=0;const push=b=>{parts.push(b);len+=b.length};
  push(e('%PDF-1.4\n'));const obj=(n,b)=>{off[n]=len;push(e(n+' 0 obj\n'+b+'\nendobj\n'))};
  obj(1,'<</Type/Catalog/Pages 2 0 R>>');obj(2,'<</Type/Pages/Kids[3 0 R]/Count 1>>');
@@ -169,30 +208,36 @@ async function makePdf(){const cv=sheetCanvas(),blob=await new Promise(r=>cv.toB
  const xp=len;let xr='xref\n0 6\n0000000000 65535 f \n';for(let i=1;i<=5;i++)xr+=String(off[i]).padStart(10,'0')+' 00000 n \n';
  push(e(xr+'trailer\n<</Size 6/Root 1 0 R>>\nstartxref\n'+xp+'\n%%EOF'));return new Blob(parts,{type:'application/pdf'})}
 /* ---------- events ---------- */
-document.addEventListener('click',async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
+document.addEventListener('click',async e=>{if(ddOpen&&!e.target.closest('.dd')){ddOpen=false;draw()}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='login')login();else if(a==='logout')auth.signOut();
- else if(a==='tab'){tab=b.dataset.t;note='';draw()}else if(a==='draft')draft();
+ else if(a==='tab'){tab=b.dataset.t;note='';if(tab==='roster')ym=curMonth();draw()}
+ else if(a==='dd'){ddOpen=!ddOpen;draw()}
+ else if(a==='exp')doExport(b.dataset.k)
+ else if(a==='logday'){const d=b.dataset.d;logOpen.has(d)?logOpen.delete(d):logOpen.add(d);draw()}else if(a==='draft')draft();
  else if(a==='clear')clearMonth();
  else if(a==='sync'){tok&&Date.now()<tokExp?syncNow():signIn()}
- else if(a==='pdf'){try{dlBlob(await makePdf(),'PnW-schedule.pdf')}catch(x){note='Couldn’t create the PDF.';draw()}}
- else if(a==='av'){const id=b.dataset.p,d=b.dataset.d,cur=P[id].avail[d]||'',nx={'':'Y',Y:'N',N:'B',B:''}[cur],base=(SH[id]&&SH[id].avail[d])||'',ov=Object.assign({},(DB[id]||{}).ov);nx===base?delete ov[d]:ov[d]=nx;patch(id,{ov})}
- else if(a==='new')patch('p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),{name:'New person',roles:[],max:3,partner:[],avoid:[],ov:{}});
- else if(a==='del'){const q=b.dataset.p;if(arm!==q){arm=q;draw();return}arm='';delete DB[q];if(canEdit)fs.collection('people').doc(q).delete().catch(fail);rebuild();draw()}});
+ else if(a==='av'){const id=b.dataset.p,d=b.dataset.d,cur=P[id].avail[d]||'',nx={'':'Y',Y:'N',N:'B',B:''}[cur],base=(SH[id]&&SH[id].avail[d])||'',ov=Object.assign({},(DB[id]||{}).ov);nx===base?delete ov[d]:ov[d]=nx;patch(id,{ov});log('Availability',`Updated ${ord(+d.slice(8))} ${P[id].name} - '${LB[cur]}' to '${LB[nx]}' (${monLabel(d.slice(0,7))})`)}
+ else if(a==='new'){log('People','Added a new person');patch('p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),{name:'New person',roles:[],max:3,partner:[],avoid:[],ov:{}})}
+ else if(a==='del'){const q=b.dataset.p;if(arm!==q){arm=q;draw();return}arm='';const nm=P[q]?P[q].name:q,was=P[q]&&P[q].sheet;delete DB[q];if(canEdit){fs.collection('people').doc(q).delete().catch(fail);log('People',(was?'Reset edits for ':'Removed ')+nm)}rebuild();draw()}});
 document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)return;const id=t.dataset.p;
  if(a==='month'){ym=t.value;draw()}
- else if(a==='set')slot(t.dataset.k,t.value)
- else if(a==='pf'){const f=t.dataset.f;patch(id,{[f]:f==='max'?Math.max(1,+t.value||3):t.value})}
- else if(a==='role'){const s=new Set(P[id].roles);t.checked?s.add(t.dataset.r):s.delete(t.dataset.r);patch(id,{roles:[...s]})}
- else if(a==='pm'){const f=t.dataset.f,s=new Set(P[id][f]);od=id+f;t.checked?s.add(t.dataset.o):s.delete(t.dataset.o);patch(id,{[f]:[...s]})}
- else if(a==='nth'){const s=new Set(P[id].nth),n=+t.dataset.n;t.checked?s.add(n):s.delete(n);patch(id,{nth:[...s].sort()})}});
+ else if(a==='set'){const k=t.dataset.k,sp=k.split('|'),o=R[k],nv=t.value;slot(k,nv);log('Roster',`Updated ${ord(+sp[0].slice(8))} ${CN[sp[1]]} - '${o&&P[o]?P[o].name:'empty'}' to '${nv&&P[nv]?P[nv].name:'empty'}' (${monLabel(sp[0].slice(0,7))})`)}
+ else if(a==='pvm'){const st=new Set(pvList());t.checked?st.add(t.dataset.m):st.delete(t.dataset.m);pvSel=[...st].sort();draw()}
+ else if(a==='chg'){showCh=t.checked;draw()}
+ else if(a==='pf'){const f=t.dataset.f;patch(id,{[f]:f==='max'?Math.max(1,+t.value||3):t.value});if(P[id])log('People','Updated '+P[id].name)}
+ else if(a==='role'){const s=new Set(P[id].roles);t.checked?s.add(t.dataset.r):s.delete(t.dataset.r);patch(id,{roles:[...s]});log('People','Updated '+P[id].name)}
+ else if(a==='pm'){const f=t.dataset.f,s=new Set(P[id][f]);od=id+f;t.checked?s.add(t.dataset.o):s.delete(t.dataset.o);patch(id,{[f]:[...s]});log('People','Updated '+P[id].name)}
+ else if(a==='nth'){const s=new Set(P[id].nth),n=+t.dataset.n;t.checked?s.add(n):s.delete(n);patch(id,{nth:[...s].sort()});log('People','Updated '+P[id].name)}});
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.a==='search'){pqRaw=t.value;pq=t.value.trim().toLowerCase();const el=document.getElementById('plist');if(el)el.innerHTML=peopleList()}});
 /* ---------- start ---------- */
 draw();
-auth.onAuthStateChanged(u=>{unsub.forEach(f=>f());unsub=[];user=u;authReady=true;canEdit=false;denied=false;
+auth.onAuthStateChanged(u=>{unsub.forEach(f=>f());unsub=[];user=u;authReady=true;canEdit=false;denied=false;logOn=false;LG=[];BL={};RU={};
  if(!u){P={};R={};DB={};SH={};RL={};draw();return}
  const err=e=>{if(e&&e.code==='permission-denied')denied=true;else note='Connection problem. Reload the page.';draw()};
- unsub.push(fs.collection('config').doc('access').onSnapshot(()=>{canEdit=true;draw()},()=>{canEdit=false;draw()}));
+ unsub.push(fs.collection('config').doc('access').onSnapshot(()=>{canEdit=true;startLog();draw()},()=>{canEdit=false;draw()}));
  unsub.push(fs.collection('people').onSnapshot(q=>{denied=false;DB={};q.docs.forEach(d=>DB[d.id]=d.data());rebuild();draw()},err));
- unsub.push(fs.collection('roster').onSnapshot(q=>{R={};q.docs.forEach(d=>Object.assign(R,d.data().a||{}));draw()},err));
+ unsub.push(fs.collection('roster').onSnapshot(q=>{R={};RU={};q.docs.forEach(d=>{const j=d.data();Object.assign(R,j.a||{});RU[d.id.slice(1)]=j.u||0});draw()},err));
+ unsub.push(fs.collection('baseline').onSnapshot(q=>{BL={};q.docs.forEach(d=>BL[d.id.slice(1)]=d.data());draw()},()=>{}));
  unsub.push(fs.collection('sheet').doc('latest').onSnapshot(d=>{if(d.exists){const j=d.data();SH=j.SH||{};RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.at?new Date(j.at):null;rebuild();draw()}},()=>{}));
  draw()});
 </script></body></html>
