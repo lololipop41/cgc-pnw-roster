@@ -9,8 +9,9 @@ Static web app. `index.html` is the whole app. Everyone who opens the link and s
 - **Who can do what:** decided by the access list in Firestore (`config/access`). Editors can change things. Viewers can only look. Everyone else sees "No access".
 - **Roster tab:** opens on the current month each time you click it. Use the month box to move to another month.
 - **People tab:** the search box filters the list as you type.
-- **Preview tab:** pick one or more months. The table shown is exactly what **Export As** (PDF or JPG) saves. The bottom right shows `Updated at:` with the time of the last roster change.
-- **Show Changes:** the first export of a month is saved as version 1. After later edits, tick Show Changes to highlight names that differ from the last export. Exporting again saves a new version.
+- **Preview tab:** pick one or more months. The table is real text, so you can select and copy it. **Export As** (PDF or JPG) saves the same layout as an image. The bottom right shows `Updated at:` with the time of the last roster change.
+- **Show Changes:** the first export of a month is saved as the first version. Names that differ from that version are highlighted (`Highlighted = Recent update`) for as long as Show Changes is ticked, including in the export. Later exports do not replace the first version.
+- **Lock (Roster tab):** the lock icon at the far right of the Clear month row disables **Auto-fill empty slots** and **Clear month** for the selected month, for everyone. Click it again to unlock. Editing single slots is still allowed.
 - **Log tab (editors only):** who did what, grouped by date. Click a date to open it.
 
 ## Publish

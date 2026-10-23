@@ -23,6 +23,12 @@ label.k{margin-right:8px;white-space:nowrap;font-size:13px}details{margin:6px 0}
 .dd{position:relative;display:inline-block}.ddm{position:absolute;left:0;top:100%;margin-top:4px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;min-width:120px;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.15)}
 .ddm button{display:block;width:100%;text-align:left;border:0;background:none;color:var(--tx);padding:9px 14px;font:inherit;cursor:pointer}.ddm button:hover{background:var(--bg)}
 .dayh{background:none;border:0;color:var(--tx);font:inherit;font-weight:600;cursor:pointer;padding:0;text-align:left}.loglist{margin-top:8px}.ll{font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
+button:disabled{opacity:.45;cursor:not-allowed}
+.pvw{container-type:inline-size;min-width:640px;background:#fff;color:#000;padding-bottom:6px}
+.pvt{width:100%;table-layout:fixed;border-collapse:collapse;border:2px solid #000;background:#fff;color:#000}
+.pvt th,.pvt td{border:1px solid #000;text-align:center;padding:0 2px;height:34px;height:3.9cqw;font-size:12px;font-size:clamp(9px,1.79cqw,22px);white-space:normal;word-break:break-all;user-select:text;-webkit-user-select:text}
+.pvt th{background:#d9d9d9;font-weight:700}.pvt td.bn{background:#d9d9d9}.pvt td.hl{background:#ffe066}
+.pvf{display:flex;justify-content:space-between;gap:12px;padding:8px 8px 2px;font-size:11px;font-size:clamp(9px,1.2cqw,15px);color:#444}.pvf .hlt{color:#8a6d00}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -74,7 +80,7 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
 /* ---------- Firebase (shared data) ---------- */
 const firebaseConfig={apiKey:"AIzaSyAOqbTsQoYGubByF3PakBIN6VekjM5vjFc",authDomain:"cgc-pnw-roster.firebaseapp.com",projectId:"cgc-pnw-roster",storageBucket:"cgc-pnw-roster.firebasestorage.app",messagingSenderId:"477625768421",appId:"1:477625768421:web:5cff5214c1fefe23dcb70c"};
 const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
-let user=null,canEdit=false,denied=false,authReady=false,unsub=[],RU={},BL={},LG=[],logOpen=new Set(),pvSel=null,showCh=false,ddOpen=false,pq='',pqRaw='',logOn=false;
+let user=null,canEdit=false,denied=false,authReady=false,unsub=[],RU={},LK={},BL={},LG=[],logOpen=new Set(),pvSel=null,showCh=false,ddOpen=false,pq='',pqRaw='',logOn=false;
 firebase.initializeApp(firebaseConfig);const auth=firebase.auth(),fs=firebase.firestore(),FV=firebase.firestore.FieldValue;
 const clean=o=>JSON.parse(JSON.stringify(o));
 const fail=()=>{note='Couldn’t save. You may not have edit access, or you are offline.';draw()};
@@ -83,15 +89,16 @@ function log(tabName,msg){if(!canEdit)return;fs.collection('logs').add({t:Date.n
 function startLog(){if(logOn)return;logOn=true;unsub.push(fs.collection('logs').orderBy('t','desc').limit(500).onSnapshot(q=>{LG=q.docs.map(d=>d.data());draw()},()=>{}))}
 const pvList=()=>(pvSel||[curMonth()]).slice().sort();
 function dlBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+function toggleLock(){if(!canEdit)return;LK[ym]=!LK[ym];fs.collection('roster').doc('m'+ym).set({lk:!!LK[ym]},{merge:true}).catch(fail);log('Roster',(LK[ym]?'Locked':'Unlocked')+' month ('+monLabel(ym)+')');draw()}
 async function doExport(kind){ddOpen=false;const ms=pvList();if(!ms.length){note='Pick at least one month.';draw();return}
  const cv=sheetCanvas(ms,showCh);
  try{if(kind==='pdf')dlBlob(await makePdf(cv),'PnW-schedule.pdf');else dlBlob(await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),'PnW-schedule.jpg')}catch(x){note='Couldn’t create the file.';draw();return}
- if(canEdit){ms.forEach(m=>{const a={};Object.keys(R).filter(k=>k.startsWith(m)).forEach(k=>a[k]=R[k]);fs.collection('baseline').doc('m'+m).set({a,v:((BL[m]&&BL[m].v)||0)+1,at:Date.now()}).catch(fail)});
+ if(canEdit){ms.forEach(m=>{if(BL[m])return;const a={};Object.keys(R).filter(k=>k.startsWith(m)).forEach(k=>a[k]=R[k]);fs.collection('baseline').doc('m'+m).set({a,v:1,at:Date.now()}).catch(fail)});
   log('Preview','Exported as '+kind.toUpperCase()+' ('+ms.map(monLabel).join(', ')+')')}
  draw()}
 function slot(k,v){if(!canEdit)return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()},u:Date.now()},{merge:true}).catch(fail);RU[k.slice(0,7)]=Date.now();draw()}
 function pushRoster(added){const by={};Object.keys(added).forEach(k=>{const m=k.slice(0,7);(by[m]=by[m]||{})[k]=added[k]});Object.keys(by).forEach(m=>{RU[m]=Date.now();fs.collection('roster').doc('m'+m).set({a:by[m],u:Date.now()},{merge:true}).catch(fail)})}
-function clearMonth(){if(!canEdit)return;Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);fs.collection('roster').doc('m'+ym).set({a:{},u:Date.now()}).catch(fail);RU[ym]=Date.now();log('Roster','Clear month ('+monLabel(ym)+')');draw()}
+function clearMonth(){if(!canEdit||LK[ym])return;Object.keys(R).filter(k=>k.startsWith(ym)).forEach(k=>delete R[k]);fs.collection('roster').doc('m'+ym).set({a:{},u:Date.now()}).catch(fail);RU[ym]=Date.now();log('Roster','Clear month ('+monLabel(ym)+')');draw()}
 function login(){note='';auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e=>{if(e.code!=='auth/popup-closed-by-user'&&e.code!=='auth/cancelled-popup-request'){note='Sign-in failed ('+e.code+'). Check that this website is in Firebase → Authentication → Authorized domains.';draw()}})}
 /* ---------- Google Sheet (read-only, editors only) ---------- */
 const CLIENT_ID='436484108503-nrfm7luig664frpnaos0iv6fmp9uukon.apps.googleusercontent.com';
@@ -125,15 +132,15 @@ function iss(pid,d,i){const p=P[pid],h=[],s=[];if(!p)return{h,s};
  const nth=Math.ceil(+d.slice(8)/7);if(p.nth.length&&!p.nth.includes(nth))h.push('Only Sunday '+p.nth.join('/')+' of month');
  for(const q of Object.keys(P))if(q!==pid&&on(d,q,-1)&&(P[q].avoid.includes(pid)||p.avoid.includes(q)))h.push('Avoid '+P[q].name.split(/\s+/)[0]);
  p.partner.forEach(q=>{if(P[q]&&!on(d,q,-1))s.push('Wants '+P[q].name.split(/\s+/)[0])});return{h,s}}
-function draft(){if(!canEdit)return;const added={},yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
+function draft(){if(!canEdit||LK[ym])return;const added={},yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
  for(const d of suns(ym)){const order=SL.map((_,i)=>i).filter(i=>!at(d,i)).sort((a,b)=>el(d,a).length-el(d,b).length);
   for(const i of order){const c=el(d,i);if(!c.length)continue;
    const sc=q=>cnt(q,yr)*10-(P[q].partner.some(x=>on(d,x,-1))?5:0)-(Object.keys(P).some(x=>P[x].partner.includes(q)&&on(d,x,-1))?5:0)+(P[q].roles.length)*0.5+Math.random()*3;
    c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0];added[d+'|'+i]=c[0]}}pushRoster(added);log('Roster','Auto-filled empty slots ('+monLabel(ym)+')');draw()}
 /* ---------- views ---------- */
 function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
- let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
- let h=`<div class="bar"><button data-a="draft">Auto-fill empty slots</button><button class="g" data-a="clear">Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span></div>`;
+ const lk=!!LK[ym];let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
+ let h=`<div class="bar"><button data-a="draft"${lk?' disabled':''}>Auto-fill empty slots</button><button class="g" data-a="clear"${lk?' disabled':''}>Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span><button class="g" data-a="lock" style="margin-left:auto" aria-pressed="${lk}" aria-label="${lk?'Unlock':'Lock'} Auto-fill and Clear month" title="${lk?'Unlock':'Lock'} Auto-fill and Clear month">${lk?'🔒':'🔓'}</button></div>`;
  for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table>`;
   SL.forEach((r,i)=>{const cur=at(d,i),x=cur&&P[cur]?iss(cur,d,i):{h:[],s:[]};
    const o=ids().map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
@@ -154,8 +161,13 @@ function peopleList(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summar
  <div style="margin-top:6px"><span class="sub">Only these Sundays of the month (none ticked = any): </span>${[1,2,3,4,5].map(n=>`<label class="k"><input type="checkbox" data-a="nth" data-n="${n}" data-p="${q}"${p.nth.includes(n)?' checked':''}> ${n}</label>`).join('')}</div>
  <input style="width:100%;margin-top:8px" placeholder="Remarks" data-a="pf" data-f="remarks" data-p="${q}" value="${esc(p.remarks)}"></section>`});return h||'<div class="empty">No one matches “'+esc(pqRaw)+'”.</div>'}
 function vPreview(ms){const sel=pvList();
- const info=showCh?'<p class="n">Highlights names changed since the last export. '+sel.map(m=>monLabel(m)+': '+(BL[m]?'compared with v'+(BL[m].v||1):'no earlier export yet')).join(' · ')+'</p>':'';
- return'<section><h3>Months to preview</h3><div>'+ms.map(m=>`<label class="k"><input type="checkbox" data-a="pvm" data-m="${m}"${sel.includes(m)?' checked':''}> ${monLabel(m)}</label>`).join('')+'</div><div class="bar" style="margin:10px 0 0"><label class="k"><input type="checkbox" data-a="chg"'+(showCh?' checked':'')+'> Show Changes</label><span class="dd"><button data-a="dd">Export As ▾</button>'+(ddOpen?'<div class="ddm"><button data-a="exp" data-k="pdf">PDF</button><button data-a="exp" data-k="jpg">JPG</button></div>':'')+'</span></div>'+info+'</section>'+(sel.length?'<div class="sc" id="pv"></div>':'<div class="empty">Pick at least one month.</div>')}
+ const info=showCh?'<p class="n">Highlighted = Recent update (names changed since the first export). '+sel.map(m=>monLabel(m)+': '+(BL[m]?'compared with the first export':'no export yet, nothing to compare')).join(' · ')+'</p>':'';
+ return'<section><h3>Months to preview</h3><div>'+ms.map(m=>`<label class="k"><input type="checkbox" data-a="pvm" data-m="${m}"${sel.includes(m)?' checked':''}> ${monLabel(m)}</label>`).join('')+'</div><div class="bar" style="margin:10px 0 0"><label class="k"><input type="checkbox" data-a="chg"'+(showCh?' checked':'')+'> Show Changes</label><span class="dd"><button data-a="dd">Export As ▾</button>'+(ddOpen?'<div class="ddm"><button data-a="exp" data-k="pdf">PDF</button><button data-a="exp" data-k="jpg">JPG</button></div>':'')+'</span></div>'+info+'</section>'+(sel.length?'<div class="sc"><div class="pvw">'+previewTable(sel,showCh)+'</div></div>':'<div class="empty">Pick at least one month.</div>')}
+function previewTable(mons,ch){const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
+ let h='<table class="pvt"><colgroup><col style="width:'+(110/1230*100)+'%">'+SL.map(()=>'<col style="width:'+(140/1230*100)+'%">').join('')+'</colgroup><tr><th>日期</th><th>领唱</th><th colspan="2">助唱</th><th>司琴</th><th>贝斯</th><th>鼓手</th><th>音响</th><th>PPT</th></tr>';
+ mons.forEach(m=>{h+='<tr><td class="bn" colspan="9">'+monLabel(m)+'</td></tr>';const bl=ch&&BL[m]&&BL[m].a;
+  suns(m).forEach(d=>{h+='<tr><td>'+(+d.slice(8))+'-'+MN[+d.slice(5,7)-1]+'</td>'+SL.map((_,i)=>{const q=at(d,i),c=bl&&q&&bl[d+'|'+i]!==q;return'<td'+(c?' class="hl"':'')+'>'+(q&&P[q]?esc(P[q].name.split(/\s+/)[0]):'')+'</td>'}).join('')+'</tr>'})});
+ return h+'</table><div class="pvf"><span class="hlt">'+(ch?'Highlighted = Recent update':'')+'</span><span>Updated at: '+fmtU(upd)+'</span></div>'}
 function vLog(){if(!LG.length)return'<div class="empty">No activity yet.</div>';const g={};LG.forEach(x=>{const d=fmtDay(x.t);(g[d]=g[d]||[]).push(x)});
  return Object.keys(g).sort().reverse().map(d=>`<section><button class="dayh" data-a="logday" data-d="${d}">${logOpen.has(d)?'▾':'▸'} ${d} <span class="sub">(${g[d].length})</span></button>${logOpen.has(d)?'<div class="loglist">'+g[d].slice().reverse().map(x=>`<div class="ll">${esc(fmtDT(x.t)+' ['+x.u+'] '+x.tab+': '+x.msg)}</div>`).join('')+'</div>':''}</section>`).join('')}
 function draw(){
@@ -174,7 +186,6 @@ function draw(){
  const body=tab==='roster'?fsw(vRoster()):tab==='avail'?fsw(vAvail()):tab==='people'?`<input id="psearch" type="search" autocomplete="off" placeholder="Search name…" data-a="search" value="${esc(pqRaw)}" style="width:100%;margin-bottom:12px">`+fsw(vPeople()):tab==='preview'?vPreview(ms):vLog();
  const ae=document.activeElement,keep=ae&&ae.id==='psearch'?[ae.selectionStart,ae.selectionEnd]:null;
  $('#app').innerHTML=bn+`<div class="bar"><span class="sub" style="margin:0">${esc(user.email)} · ${canEdit?'Editor':'View only'} · ${esc(st)}</span>${canEdit?'<button class="g" data-a="sync">Sync Sheet</button>':''}<button class="g" data-a="logout">Sign out</button></div><nav>${T.map(t=>`<button data-a="tab" data-t="${t[0]}" class="${tab===t[0]?'on':''}">${t[1]}</button>`).join('')}${tab==='roster'||tab==='avail'?`<select data-a="month" style="margin-left:auto">${mo}</select>`:''}</nav>`+body;
- if(tab==='preview'){const host=document.getElementById('pv');if(host){const cv=sheetCanvas(pvList(),showCh);cv.style.cssText='width:100%;min-width:760px;height:auto;display:block';host.appendChild(cv)}}
  if(keep){const el=document.getElementById('psearch');if(el){el.focus();try{el.setSelectionRange(keep[0],keep[1])}catch(e){}}}}
 /* ---------- PDF (canvas → JPEG → PDF, so Chinese names render) ---------- */
 function sheetCanvas(mons,ch){
@@ -195,7 +206,7 @@ function sheetCanvas(mons,ch){
   ln(0,y+RH,W,y+RH);y+=RH});
  const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
  c.font='15px '+F;c.fillStyle='#444';c.textAlign='right';c.fillText('Updated at: '+fmtU(upd),W-8,H+FH/2);
- if(ch){c.textAlign='left';c.fillStyle='#8a6d00';c.fillText('Highlighted = changed since the last export',8,H+FH/2)}
+ if(ch){c.textAlign='left';c.fillStyle='#8a6d00';c.fillText('Highlighted = Recent update',8,H+FH/2)}
  return cv}
 async function makePdf(cv){const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),jpg=new Uint8Array(await blob.arrayBuffer());
  const pw=842,m=28,w=pw-2*m,h=w*cv.height/cv.width,ph=Math.ceil(Math.max(595,h+2*m));
@@ -211,6 +222,7 @@ async function makePdf(cv){const blob=await new Promise(r=>cv.toBlob(r,'image/jp
 document.addEventListener('click',async e=>{if(ddOpen&&!e.target.closest('.dd')){ddOpen=false;draw()}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='login')login();else if(a==='logout')auth.signOut();
  else if(a==='tab'){tab=b.dataset.t;note='';if(tab==='roster')ym=curMonth();draw()}
+ else if(a==='lock')toggleLock();
  else if(a==='dd'){ddOpen=!ddOpen;draw()}
  else if(a==='exp')doExport(b.dataset.k)
  else if(a==='logday'){const d=b.dataset.d;logOpen.has(d)?logOpen.delete(d):logOpen.add(d);draw()}else if(a==='draft')draft();
@@ -231,12 +243,12 @@ document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)retu
 document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.a==='search'){pqRaw=t.value;pq=t.value.trim().toLowerCase();const el=document.getElementById('plist');if(el)el.innerHTML=peopleList()}});
 /* ---------- start ---------- */
 draw();
-auth.onAuthStateChanged(u=>{unsub.forEach(f=>f());unsub=[];user=u;authReady=true;canEdit=false;denied=false;logOn=false;LG=[];BL={};RU={};
+auth.onAuthStateChanged(u=>{unsub.forEach(f=>f());unsub=[];user=u;authReady=true;canEdit=false;denied=false;logOn=false;LG=[];BL={};RU={};LK={};
  if(!u){P={};R={};DB={};SH={};RL={};draw();return}
  const err=e=>{if(e&&e.code==='permission-denied')denied=true;else note='Connection problem. Reload the page.';draw()};
  unsub.push(fs.collection('config').doc('access').onSnapshot(()=>{canEdit=true;startLog();draw()},()=>{canEdit=false;draw()}));
  unsub.push(fs.collection('people').onSnapshot(q=>{denied=false;DB={};q.docs.forEach(d=>DB[d.id]=d.data());rebuild();draw()},err));
- unsub.push(fs.collection('roster').onSnapshot(q=>{R={};RU={};q.docs.forEach(d=>{const j=d.data();Object.assign(R,j.a||{});RU[d.id.slice(1)]=j.u||0});draw()},err));
+ unsub.push(fs.collection('roster').onSnapshot(q=>{R={};RU={};LK={};q.docs.forEach(d=>{const j=d.data();Object.assign(R,j.a||{});RU[d.id.slice(1)]=j.u||0;LK[d.id.slice(1)]=!!j.lk});draw()},err));
  unsub.push(fs.collection('baseline').onSnapshot(q=>{BL={};q.docs.forEach(d=>BL[d.id.slice(1)]=d.data());draw()},()=>{}));
  unsub.push(fs.collection('sheet').doc('latest').onSnapshot(d=>{if(d.exists){const j=d.data();SH=j.SH||{};RL=j.RL||{};rolesOk=!!j.rolesOk;syncAt=j.at?new Date(j.at):null;rebuild();draw()}},()=>{}));
  draw()});
