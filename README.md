@@ -6,6 +6,7 @@ Static web app. `index.html` is the whole app. Everyone who opens the link and s
 
 - **Shared data:** people edits and rosters are stored in Firebase Firestore (project `cgc-pnw-roster`).
 - **Google Sheet:** an editor presses **Sync Sheet**. The app reads the first sheet plus the role tabs (`vocal_main`, `vocal_sub`, `piano`, `drum`, `bass`, `pa`, `ppt`), read-only, and saves a copy to Firestore so viewers see names and availability without Sheet access.
+- **Name order:** people are listed in the same order as the first sheet (People, Availability, dropdowns and the counts table). People added by hand come after them. Press **Sync Sheet** once after updating the app so the order is saved.
 - **Who can do what:** decided by the access list in Firestore (`config/access`). Editors can change things. Viewers can only look. Everyone else sees "No access".
 - **Roster tab:** opens on the current month each time you click it. Use the month box to move to another month.
 - **People tab:** the search box filters the list as you type.

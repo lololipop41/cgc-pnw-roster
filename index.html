@@ -29,6 +29,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .pvt th,.pvt td{border:1px solid #000;text-align:center;padding:0 2px;height:34px;height:3.9cqw;font-size:12px;font-size:clamp(9px,1.79cqw,22px);white-space:normal;word-break:break-all;user-select:text;-webkit-user-select:text}
 .pvt th{background:#d9d9d9;font-weight:700}.pvt td.bn{background:#d9d9d9}.pvt td.hl{background:#ffe066}
 .pvf{display:flex;justify-content:space-between;gap:12px;padding:8px 8px 2px;font-size:11px;font-size:clamp(9px,1.2cqw,15px);color:#444}.pvf .hlt{color:#8a6d00}
+.rt{table-layout:fixed}.rt td:nth-child(1){width:64px}.rt td:nth-child(2){width:min(300px,45%)}.rt select{width:100%}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -141,7 +142,7 @@ function draft(){if(!canEdit||LK[ym])return;const added={},yr=ym.slice(0,4),el=(
 function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
  const lk=!!LK[ym];let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
  let h=`<div class="bar"><button data-a="draft"${lk?' disabled':''}>Auto-fill empty slots</button><button class="g" data-a="clear"${lk?' disabled':''}>Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span><button class="g" data-a="lock" style="margin-left:auto" aria-pressed="${lk}" aria-label="${lk?'Unlock':'Lock'} Auto-fill, Clear month and slot edits" title="${lk?'Unlock':'Lock'} Auto-fill, Clear month and slot edits">${lk?'🔒':'🔓'}</button></div>`;
- for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table>`;
+ for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table class="rt">`;
   SL.forEach((r,i)=>{const cur=at(d,i),x=cur&&P[cur]?iss(cur,d,i):{h:[],s:[]};
    const o=ids().map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
    h+=`<tr><td>${CN[i]}</td><td><select data-a="set" data-k="${d}|${i}"${lk?' disabled':''}><option value="">—</option>${o}</select></td><td class="st">${cur&&P[cur]&&P[cur].remarks?`<span class="mk">${esc(P[cur].remarks)}</span>`:''}${x.h.map(t=>`<span class="r">${esc(t)}</span>`).join('')}${x.s.map(t=>`<span class="w">${esc(t)}</span>`).join('')}${cur&&!x.h.length&&!x.s.length?'<span class="o">✔</span>':''}</td></tr>`});
