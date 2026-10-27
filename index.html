@@ -30,6 +30,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .pvt th{background:#d9d9d9;font-weight:700}.pvt td.bn{background:#d9d9d9}.pvt td.hl{background:#ffe066}
 .pvf{display:flex;justify-content:space-between;gap:12px;padding:8px 8px 2px;font-size:11px;font-size:clamp(9px,1.2cqw,15px);color:#444}.pvf .hlt{color:#8a6d00}
 .rt{table-layout:fixed}.rt td:nth-child(1){width:64px}.rt td:nth-child(2){width:min(300px,45%)}.rt select{width:100%}
+.sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.sh h3{margin:0}.rf{border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:8px;padding:2px 10px;font-size:17px;line-height:1.3;cursor:pointer}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -90,6 +91,31 @@ function log(tabName,msg){if(!canEdit)return;fs.collection('logs').add({t:Date.n
 function startLog(){if(logOn)return;logOn=true;unsub.push(fs.collection('logs').orderBy('t','desc').limit(500).onSnapshot(q=>{LG=q.docs.map(d=>d.data());draw()},()=>{}))}
 const pvList=()=>(pvSel||[curMonth()]).slice().sort();
 function dlBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+function refreshDay(d){if(!canEdit||LK[d.slice(0,7)])return;
+ const yr=d.slice(0,4),n=SL.length,old=SL.map((_,i)=>at(d,i)||'');
+ SL.forEach((_,i)=>{delete R[d+'|'+i]});                       /* free this Sunday, then work out the best line-up */
+ const pids=Object.keys(P),el=SL.map((_,i)=>pids.filter(q=>!iss(q,d,i).h.length)),base={};pids.forEach(q=>base[q]=cnt(q,yr));
+ const avoid=(a,b)=>P[a].avoid.includes(b)||P[b].avoid.includes(a),order=SL.map((_,i)=>i).sort((a,b)=>el[a].length-el[b].length);
+ const cur=Array(n).fill(''),val=()=>{let f=0,k=0,pb=0,fa=0;const st=new Set(cur.filter(Boolean));
+  cur.forEach((q,i)=>{if(!q)return;f++;if(q===old[i])k++;fa+=base[q];P[q].partner.forEach(x=>{if(st.has(x))pb++})});return f*10000+k*500+pb*40-fa};
+ let best=Array(n).fill(''),bestV=-1,bestF=-1,nodes=0;
+ const go=(k,filled)=>{if(++nodes>40000||filled+n-k<bestF)return;
+  if(k===n){const v=val();if(v>bestV){bestV=v;best=cur.slice();bestF=filled}return}
+  const i=order[k],used=cur.filter(Boolean);
+  const c=el[i].filter(q=>!used.includes(q)&&!used.some(u=>avoid(q,u)));
+  c.sort((a,b)=>((b===old[i])-(a===old[i]))||base[a]-base[b]);
+  for(const q of c){cur[i]=q;go(k+1,filled+1);if(nodes>40000)break}
+  cur[i]='';go(k+1,filled)};
+ go(0,0);
+ const upd={};let fill=0,mv=0,clr=0;const empty=[];
+ SL.forEach((_,i)=>{const key=d+'|'+i,nw=best[i],o=old[i];if(!nw)empty.push(CN[i]);
+  if(nw===o){if(nw)R[key]=nw;return}
+  if(nw){R[key]=nw;upd[key]=nw;o?mv++:fill++}else{upd[key]=FV.delete();clr++}});
+ const mo=d.slice(0,7);
+ if(Object.keys(upd).length){fs.collection('roster').doc('m'+mo).set({a:upd,u:Date.now()},{merge:true}).catch(fail);RU[mo]=Date.now();
+  log('Roster','Refreshed '+ord(+d.slice(8))+' - filled '+fill+', switched '+mv+', cleared '+clr+', still empty '+empty.length+' ('+monLabel(mo)+')')}
+ note=empty.length?'Still empty on '+fmt(d)+': '+[...new Set(empty)].join(', ')+'. No one else can serve there.':(Object.keys(upd).length?'':'Nothing to change on '+fmt(d)+'. Every slot is already filled.');
+ draw()}
 function toggleLock(){if(!canEdit)return;LK[ym]=!LK[ym];fs.collection('roster').doc('m'+ym).set({lk:!!LK[ym]},{merge:true}).catch(fail);log('Roster',(LK[ym]?'Locked':'Unlocked')+' month ('+monLabel(ym)+')');draw()}
 async function doExport(kind){ddOpen=false;const ms=pvList();if(!ms.length){note='Pick at least one month.';draw();return}
  const cv=sheetCanvas(ms,showCh);
@@ -142,9 +168,9 @@ function draft(){if(!canEdit||LK[ym])return;const added={},yr=ym.slice(0,4),el=(
 function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
  const lk=!!LK[ym];let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
  let h=`<div class="bar"><button data-a="draft"${lk?' disabled':''}>Auto-fill empty slots</button><button class="g" data-a="clear"${lk?' disabled':''}>Clear month</button><span class="sub">${n} empty slot${n==1?'':'s'}</span><button class="g" data-a="lock" style="margin-left:auto" aria-pressed="${lk}" aria-label="${lk?'Unlock':'Lock'} Auto-fill, Clear month and slot edits" title="${lk?'Unlock':'Lock'} Auto-fill, Clear month and slot edits">${lk?'🔒':'🔓'}</button></div>`;
- for(const d of ds){h+=`<section><h3>${fmt(d)}</h3><table class="rt">`;
+ for(const d of ds){h+=`<section><div class="sh"><h3>${fmt(d)}</h3><button class="rf" data-a="refresh" data-d="${d}"${lk?' disabled':''} title="Refresh: fill empty slots and re-arrange this Sunday" aria-label="Refresh ${fmt(d)}">↻</button></div><table class="rt">`;
   SL.forEach((r,i)=>{const cur=at(d,i),x=cur&&P[cur]?iss(cur,d,i):{h:[],s:[]};
-   const o=ids().map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
+   const o=ids().filter(q=>q===cur||P[q].roles.includes(SL[i])).map(q=>`<option value="${q}"${q===cur?' selected':''}>${q!==cur&&iss(q,d,i).h.length?'⚠ ':''}${esc(P[q].name)}</option>`).join('');
    h+=`<tr><td>${CN[i]}</td><td><select data-a="set" data-k="${d}|${i}"${lk?' disabled':''}><option value="">—</option>${o}</select></td><td class="st">${cur&&P[cur]&&P[cur].remarks?`<span class="mk">${esc(P[cur].remarks)}</span>`:''}${x.h.map(t=>`<span class="r">${esc(t)}</span>`).join('')}${x.s.map(t=>`<span class="w">${esc(t)}</span>`).join('')}${cur&&!x.h.length&&!x.s.length?'<span class="o">✔</span>':''}</td></tr>`});
   h+='</table></section>'}
  h+=`<section><h3>Services per person</h3><table><tr><th>Name</th><th>This month</th><th>${ym.slice(0,4)}</th></tr>`;
@@ -164,10 +190,15 @@ function peopleList(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summar
 function vPreview(ms){const sel=pvList();
  const info=showCh?'<p class="n">Highlighted = Recent update (names changed since the first export). '+sel.map(m=>monLabel(m)+': '+(BL[m]?'compared with the first export':'no export yet, nothing to compare')).join(' · ')+'</p>':'';
  return'<section><h3>Months to preview</h3><div>'+ms.map(m=>`<label class="k"><input type="checkbox" data-a="pvm" data-m="${m}"${sel.includes(m)?' checked':''}> ${monLabel(m)}</label>`).join('')+'</div><div class="bar" style="margin:10px 0 0"><label class="k"><input type="checkbox" data-a="chg"'+(showCh?' checked':'')+'> Show Changes</label><span class="dd"><button data-a="dd">Export As ▾</button>'+(ddOpen?'<div class="ddm"><button data-a="exp" data-k="pdf">PDF</button><button data-a="exp" data-k="jpg">JPG</button></div>':'')+'</span></div>'+info+'</section>'+(sel.length?'<div class="sc"><div class="pvw">'+previewTable(sel,showCh)+'</div></div>':'<div class="empty">Pick at least one month.</div>')}
+const dn=q=>q&&P[q]?P[q].name.split(/\s+/)[0]:(q||'');
+function isChanged(bl,d,i){const cur=dn(at(d,i)),old=dn(bl[d+'|'+i]);
+ if(SL[i]==='Backup'){const bs=[1,2].map(j=>dn(bl[d+'|'+j])).filter(Boolean),cs=[1,2].map(j=>dn(at(d,j))).filter(Boolean);
+  return cur?!bs.includes(cur):(!!old&&!cs.includes(old))}
+ return cur!==old}
 function previewTable(mons,ch){const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
  let h='<table class="pvt"><colgroup><col style="width:'+(110/1230*100)+'%">'+SL.map(()=>'<col style="width:'+(140/1230*100)+'%">').join('')+'</colgroup><tr><th>日期</th><th>领唱</th><th colspan="2">助唱</th><th>司琴</th><th>贝斯</th><th>鼓手</th><th>音响</th><th>PPT</th></tr>';
  mons.forEach(m=>{h+='<tr><td class="bn" colspan="9">'+monLabel(m)+'</td></tr>';const bl=ch&&BL[m]&&BL[m].a;
-  suns(m).forEach(d=>{h+='<tr><td>'+(+d.slice(8))+'-'+MN[+d.slice(5,7)-1]+'</td>'+SL.map((_,i)=>{const q=at(d,i),c=bl&&q&&bl[d+'|'+i]!==q;return'<td'+(c?' class="hl"':'')+'>'+(q&&P[q]?esc(P[q].name.split(/\s+/)[0]):'')+'</td>'}).join('')+'</tr>'})});
+  suns(m).forEach(d=>{h+='<tr><td>'+(+d.slice(8))+'-'+MN[+d.slice(5,7)-1]+'</td>'+SL.map((_,i)=>{const q=at(d,i),c=bl&&isChanged(bl,d,i);return'<td'+(c?' class="hl"':'')+'>'+(q&&P[q]?esc(P[q].name.split(/\s+/)[0]):'')+'</td>'}).join('')+'</tr>'})});
  return h+'</table><div class="pvf"><span class="hlt">'+(ch?'Highlighted = Recent update':'')+'</span><span>Updated at: '+fmtU(upd)+'</span></div>'}
 function vLog(){if(!LG.length)return'<div class="empty">No activity yet.</div>';const g={};LG.forEach(x=>{const d=fmtDay(x.t);(g[d]=g[d]||[]).push(x)});
  return Object.keys(g).sort().reverse().map(d=>`<section><button class="dayh" data-a="logday" data-d="${d}">${logOpen.has(d)?'▾':'▸'} ${d} <span class="sub">(${g[d].length})</span></button>${logOpen.has(d)?'<div class="loglist">'+g[d].slice().reverse().map(x=>`<div class="ll">${esc(fmtDT(x.t)+' ['+x.u+'] '+x.tab+': '+x.msg)}</div>`).join('')+'</div>':''}</section>`).join('')}
@@ -202,7 +233,7 @@ function sheetCanvas(mons,ch){
  rows.forEach(r=>{if(r.b){c.fillStyle='#d9d9d9';c.fillRect(0,y,W,RH);c.fillStyle='#000';c.fillText(r.b,W/2,y+RH/2);ln(0,y,0,y+RH);ln(W,y,W,y+RH)}
   else{c.fillStyle='#000';c.fillText(+r.d.slice(8)+'-'+MN[+r.d.slice(5,7)-1],cw[0]/2,y+RH/2);
    const bl=ch&&BL[r.m]&&BL[r.m].a;
-   SL.forEach((_,i)=>{const q=at(r.d,i),x=xs[i+1];if(bl&&q&&bl[r.d+'|'+i]!==q){c.fillStyle='#ffe066';c.fillRect(x+1,y+1,cw[i+1]-2,RH-2)}
+   SL.forEach((_,i)=>{const q=at(r.d,i),x=xs[i+1];if(bl&&isChanged(bl,r.d,i)){c.fillStyle='#ffe066';c.fillRect(x+1,y+1,cw[i+1]-2,RH-2)}
     c.fillStyle='#000';if(q&&P[q])c.fillText(P[q].name.split(/\s+/)[0],x+cw[i+1]/2,y+RH/2)});xs.forEach(x=>ln(x,y,x,y+RH))}
   ln(0,y+RH,W,y+RH);y+=RH});
  const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
@@ -224,6 +255,7 @@ document.addEventListener('click',async e=>{if(ddOpen&&!e.target.closest('.dd'))
  if(a==='login')login();else if(a==='logout')auth.signOut();
  else if(a==='tab'){tab=b.dataset.t;note='';if(tab==='roster')ym=curMonth();draw()}
  else if(a==='lock')toggleLock();
+ else if(a==='refresh')refreshDay(b.dataset.d);
  else if(a==='dd'){ddOpen=!ddOpen;draw()}
  else if(a==='exp')doExport(b.dataset.k)
  else if(a==='logday'){const d=b.dataset.d;logOpen.has(d)?logOpen.delete(d):logOpen.add(d);draw()}else if(a==='draft')draft();
