@@ -32,6 +32,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .rt{table-layout:fixed}.rt td:nth-child(1){width:64px}.rt td:nth-child(2){width:min(300px,45%)}.rt select{width:100%}
 .sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.sh h3{margin:0}.rf{border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:8px;padding:2px 10px;font-size:17px;line-height:1.3;cursor:pointer}
 .mv{display:inline-flex;align-items:center;gap:6px;margin:0 16px 8px 0}
+.cfab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));width:52px;height:52px;border-radius:50%;border:0;background:var(--ac);color:#fff;font-size:24px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:30}
+.cpanel{position:fixed;right:12px;bottom:calc(80px + env(safe-area-inset-bottom,0px));width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 140px));flex-direction:column;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.25);z-index:30;overflow:hidden}
+.ch{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--bd)}.cx{margin-left:auto}.cx button,.cq button,.cin button{border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:8px;padding:5px 10px;font:inherit;cursor:pointer}
+.cmsgs{flex:1;overflow-y:auto;padding:10px 12px}.cm{padding:8px 12px;border-radius:12px;margin:6px 0;max-width:92%;white-space:pre-wrap;word-break:break-word}.cu{background:var(--ac);color:#fff;margin-left:auto}.ca{background:var(--bg)}
+.cq{display:flex;gap:6px;padding:6px 12px;flex-wrap:wrap}.cin{display:flex;gap:6px;padding:6px 12px}.cin input{flex:1;min-width:0}.cft{padding:0 12px 8px;margin:0}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -218,6 +223,7 @@ function previewTable(mons,ch){const V={};mons.forEach(m=>V[m]=mview(m,ch));cons
 function vLog(){if(!LG.length)return'<div class="empty">No activity yet.</div>';const g={};LG.forEach(x=>{const d=fmtDay(x.t);(g[d]=g[d]||[]).push(x)});
  return Object.keys(g).sort().reverse().map(d=>`<section><button class="dayh" data-a="logday" data-d="${d}">${logOpen.has(d)?'▾':'▸'} ${d} <span class="sub">(${g[d].length})</span></button>${logOpen.has(d)?'<div class="loglist">'+g[d].slice().reverse().map(x=>`<div class="ll">${esc(fmtDT(x.t)+' ['+x.u+'] '+x.tab+': '+x.msg)}</div>`).join('')+'</div>':''}</section>`).join('')}
 function draw(){
+ chatVis();
  if(!authReady){$('#app').innerHTML='<div class="empty">Loading…</div>';return}
  const bn=note?`<div class="ban">${esc(note)}</div>`:'';
  if(!user){$('#app').innerHTML=bn+'<section class="empty"><p>Sign in with the Google account your leaders added.</p><div class="bar" style="justify-content:center"><button data-a="login">Sign in with Google</button></div></section>';return}
@@ -291,7 +297,138 @@ document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)retu
  else if(a==='pm'){const f=t.dataset.f,s=new Set(P[id][f]);od=id+f;t.checked?s.add(t.dataset.o):s.delete(t.dataset.o);patch(id,{[f]:[...s]});log('People','Updated '+P[id].name)}
  else if(a==='nth'){const s=new Set(P[id].nth),n=+t.dataset.n;t.checked?s.add(n):s.delete(n);patch(id,{nth:[...s].sort()});log('People','Updated '+P[id].name)}});
 document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.a==='search'){pqRaw=t.value;pq=t.value.trim().toLowerCase();const el=document.getElementById('plist');if(el)el.innerHTML=peopleList()}});
+/* ---------- Assistant (editors only) ---------- */
+/* Real names never leave the browser: people are sent to the AI as random codes (P01, P02, ...). */
+const SLN=['Lead','Backup1','Backup2','Piano','Bass','Drum','PA','PPT'],SLX={Lead:0,Backup1:1,Backup2:2,Piano:3,Bass:4,Drum:5,PA:6,PPT:7};
+const CHAT_LIMIT=20,MODELS=['gemini-3.5-flash-lite','gemini-3.1-flash-lite','gemini-2.5-flash-lite'],SDK='https://www.gstatic.com/firebasejs/12.19.0/';
+const SYS='You are the scheduling assistant for a church Praise & Worship team. People appear only as codes (P01, P02, ...); always use the codes exactly. Use only the data given and never guess. Slots: Lead, Backup1, Backup2, Piano, Bass, Drum, PA, PPT. Dates are Sundays (YYYY-MM-DD). Answer briefly (max 60 words) in the same language as the user. To change anything, call the provided functions (several calls are fine) instead of describing the change in text. If the person, date or slot is unclear, ask one short question. Rules to respect: roles, availability, never two Sundays in a row, max per month, partner and avoid lists.';
+const CH={open:false,msgs:[],hist:[],pending:null,busy:false,last:0,root:null,fab:null};
+let AL={code:{},id:{}},aiImpl=null;
+const escRe=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),nmOf=q=>q&&P[q]?P[q].name:'(empty)';
+function aliasReset(){const a=ids().slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+ AL={code:{},id:{}};a.forEach((q,i)=>{const c='P'+String(i+1).padStart(2,'0');AL.code[q]=c;AL.id[c]=q})}
+function aliasEnsure(){if(!Object.keys(AL.code).length){aliasReset();return}let n=Object.keys(AL.code).length;ids().forEach(q=>{if(!AL.code[q]){n++;const c='P'+String(n).padStart(2,'0');AL.code[q]=c;AL.id[c]=q}})}
+function scrub(text){aliasEnsure();const who={},pairs=[];
+ ids().forEach(q=>{const nm=P[q].name.trim(),tk=nm.split(/\s+/),cn=tk[0],v=new Set([nm,cn]);if(cn.length>=3)v.add(cn.slice(-2));tk.slice(1).forEach(x=>{if(x.length>=3)v.add(x)});
+  v.forEach(x=>{if(x.length<2)return;const k=x.toLowerCase();(who[k]=who[k]||new Set()).add(q);pairs.push([x,q])})});
+ pairs.sort((a,b)=>b[0].length-a[0].length);let t=String(text);
+ pairs.forEach(([x,q])=>{const rep=who[x.toLowerCase()].size>1?'[?]':AL.code[q];t=t.replace(/^[\x00-\x7f]+$/.test(x)?new RegExp('\\b'+escRe(x)+'\\b','gi'):new RegExp(escRe(x),'g'),rep)});return t}
+const unscrub=t=>String(t).replace(/\bP\d{2,3}\b/g,c=>AL.id[c]&&P[AL.id[c]]?P[AL.id[c]].name:c);
+function buildContext(m,q){aliasEnsure();const ds=suns(m),yr=m.slice(0,4),withRem=/remark|note|备注|備註|request|要求|一起|together|partner|why|为什么|為什麼/i.test(q),c=id=>AL.code[id]||'?';
+ const L=['Month '+m+(LK[m]?' (LOCKED)':'')+'. Sundays: '+ds.map(d=>d.slice(5)).join(' ')+'. Slots: '+SLN.join(',')+'.','People: code | roles | max per month | prefers with | never with | only Sunday no. | served month/year'];
+ ids().forEach(x=>{const p=P[x];L.push([c(x),p.roles.join('/')||'-',p.max,p.partner.map(c).join('/')||'-',p.avoid.map(c).join('/')||'-',p.nth.join('/')||'any',cnt(x,m)+'/'+cnt(x,yr)].join(' | ')+(withRem&&p.remarks?' | note: '+scrub(p.remarks).slice(0,80):''))});
+ L.push('Availability, one character per Sunday in order (Y yes, N no, B busy elsewhere, - unknown):');
+ ids().forEach(x=>L.push(c(x)+' '+ds.map(d=>({Y:'Y',N:'N',B:'B'}[P[x].avail[d]]||'-')).join('')));
+ L.push('Roster:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>{const x=at(d,i);return SLN[i]+'='+(x&&AL.code[x]?AL.code[x]:'-')}).join(' ')));
+ const pr=[];ds.forEach(d=>SL.forEach((_,i)=>{const x=at(d,i);if(x&&P[x]){const h=iss(x,d,i).h;if(h.length)pr.push(d.slice(5)+' '+SLN[i]+'='+c(x)+': '+scrub(h.join(', ')))}}));
+ if(pr.length){L.push('Problems:');pr.forEach(x=>L.push(x))}
+ return L.join('\n')}
+/* ---- turn the AI's function calls into a list the editor must confirm ---- */
+const isSun=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')&&new Date(d+'T00:00:00Z').getUTCDay()===0,isMon=m=>/^\d{4}-\d{2}$/.test(m||'');
+const pidOf=c=>{const id=AL.id[String(c||'').toUpperCase()];return id&&P[id]?id:null};
+const chatLog=msg=>log('Chat',msg);
+function buildActions(calls){const items=[],errors=[];
+ (calls||[]).forEach(cl=>{const a=cl.args||{},err=t=>errors.push(t);
+  if(cl.name==='assign_slot'){const d=a.date,i=SLX[a.slot];if(!isSun(d)||i==null){err('Unclear date or slot.');return}
+   if(LK[d.slice(0,7)]){err(monLabel(d.slice(0,7))+' is locked.');return}
+   const none=/^none$/i.test(a.person||''),q=none?'':pidOf(a.person);if(!none&&!q){err('Unknown person.');return}
+   const old=at(d,i)||'',warn=q?iss(q,d,i).h:[];
+   items.push({text:fmt(d)+' '+CN[i]+': '+nmOf(old)+' → '+(q?nmOf(q):'(empty)'),warn,run:()=>{slot(d+'|'+i,q);chatLog("Updated "+ord(+d.slice(8))+' '+CN[i]+" - '"+(old?nmOf(old):'empty')+"' to '"+(q?nmOf(q):'empty')+"' ("+monLabel(d.slice(0,7))+')')}})}
+  else if(cl.name==='set_availability'){const d=a.date,q=pidOf(a.person),nx={Yes:'Y',No:'N',Busy:'B',Blank:''}[a.value];if(!isSun(d)||!q||nx===undefined){err('Unclear person, date or value.');return}
+   const cur=P[q].avail[d]||'';if(cur===nx){err(nmOf(q)+' is already '+LB[cur]+' on '+fmt(d)+'.');return}
+   items.push({text:nmOf(q)+' '+fmt(d)+': '+LB[cur]+' → '+LB[nx],warn:[],run:()=>{const base=(SH[q]&&SH[q].avail[d])||'',ov=Object.assign({},(DB[q]||{}).ov);nx===base?delete ov[d]:ov[d]=nx;patch(q,{ov});chatLog('Updated '+ord(+d.slice(8))+' '+nmOf(q)+" - '"+LB[cur]+"' to '"+LB[nx]+"' ("+monLabel(d.slice(0,7))+')')}})}
+  else if(cl.name==='refresh_sunday'){const d=a.date;if(!isSun(d)){err('Unclear date.');return}if(LK[d.slice(0,7)]){err(monLabel(d.slice(0,7))+' is locked.');return}
+   items.push({text:'Refresh '+fmt(d)+': replace people who can’t serve (no names cleared, no empty slots filled)',warn:[],run:()=>refreshDay(d)})}
+  else if(cl.name==='auto_fill_month'||cl.name==='clear_month'){const m=a.month;if(!isMon(m)){err('Unclear month.');return}if(LK[m]){err(monLabel(m)+' is locked.');return}
+   const clr=cl.name==='clear_month';items.push({text:(clr?'Clear every name in ':'Auto-fill empty slots in ')+monLabel(m),warn:clr?['This removes all names for the month']:[],run:()=>{const keep=ym;ym=m;clr?clearMonth():draft();ym=keep;draw()}})}
+  else if(cl.name==='set_lock'){const m=a.month,want=a.locked===true||a.locked==='true';if(!isMon(m)){err('Unclear month.');return}
+   if(!!LK[m]===want){err(monLabel(m)+' is already '+(want?'locked':'unlocked')+'.');return}
+   items.push({text:(want?'Lock ':'Unlock ')+monLabel(m),warn:[],run:()=>{const keep=ym;ym=m;toggleLock();ym=keep;draw()}})}
+  else err('Unknown action.')});
+ return{items,errors}}
+function fixedCommand(q){const t=q.trim();let m;
+ if(m=/^(refresh|刷新)\s*(\d{1,2})[\/\-.](\d{1,2})$/i.exec(t))return[{name:'refresh_sunday',args:{date:ym.slice(0,4)+'-'+p2(+m[2])+'-'+p2(+m[3])}}];
+ if(/^(lock|锁定|锁)$/i.test(t))return[{name:'set_lock',args:{month:ym,locked:true}}];
+ if(/^(unlock|解锁)$/i.test(t))return[{name:'set_lock',args:{month:ym,locked:false}}];
+ return null}
+/* ---- limits ---- */
+const DK=()=>'pnw.chat.'+fmtDay(Date.now()).replace(/\//g,'');
+function used(){try{return+localStorage.getItem(DK())||0}catch(e){return 0}}
+function bump(){try{localStorage.setItem(DK(),String(used()+1))}catch(e){}}
+function aiErr(e){const s=String((e&&(e.message||e.code))||e);
+ if(/Failed to fetch|import|network|load/i.test(s))return'Couldn’t load the AI library. Check your connection and try again.';
+ if(/429|quota|RESOURCE_EXHAUSTED|rate/i.test(s))return'The free AI quota is used up for now. Try again later, or use the quick buttons.';
+ if(/PERMISSION_DENIED|403|not been used|not enabled|api-not-enabled|API key/i.test(s))return'Firebase AI Logic is not available for this project. In the Firebase console open AI Logic and make sure the Gemini Developer API is enabled.';
+ return'AI error: '+s.slice(0,140)}
+/* ---- the AI (loaded only when first used) ---- */
+async function ensureAI(){if(aiImpl)return;
+ const[A,M]=await Promise.all([import(SDK+'firebase-app.js'),import(SDK+'firebase-ai.js')]);
+ const app=A.initializeApp(firebaseConfig,'ai-chat'),ai=M.getAI(app,{backend:new M.GoogleAIBackend()}),S=M.Schema,str=d=>S.string({description:d});
+ const tools=[{functionDeclarations:[
+  {name:'assign_slot',description:'Put one person in one slot on a Sunday, or clear the slot with person "none".',parameters:S.object({properties:{date:str('Sunday, YYYY-MM-DD'),slot:S.enumString({enum:SLN}),person:str('person code such as P07, or none')}})},
+  {name:'set_availability',description:'Set one person availability on a Sunday.',parameters:S.object({properties:{person:str('person code'),date:str('Sunday, YYYY-MM-DD'),value:S.enumString({enum:['Yes','No','Busy','Blank']})}})},
+  {name:'refresh_sunday',description:'Replace people who cannot serve on a Sunday. Never clears names and never fills empty slots.',parameters:S.object({properties:{date:str('Sunday, YYYY-MM-DD')}})},
+  {name:'auto_fill_month',description:'Auto-fill the empty slots of a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
+  {name:'clear_month',description:'Clear every name in a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
+  {name:'set_lock',description:'Lock or unlock the roster of a month.',parameters:S.object({properties:{month:str('YYYY-MM'),locked:S.boolean()}})}]}];
+ let mi=0;
+ aiImpl=async contents=>{for(;mi<MODELS.length;mi++){try{
+   const model=M.getGenerativeModel(ai,{model:MODELS[mi],tools,systemInstruction:SYS,generationConfig:{maxOutputTokens:1024,temperature:0.2}});
+   const rs=(await model.generateContent({contents})).response;let calls=[],text='';
+   try{calls=(rs.functionCalls&&rs.functionCalls())||[]}catch(e){}try{text=rs.text()}catch(e){}return{text,calls}
+  }catch(e){if(/not.?found|404|not supported|unsupported/i.test(String((e&&e.message)||e))&&mi<MODELS.length-1)continue;throw e}}}}
+/* ---- chat flow ---- */
+function addMsg(r,t){CH.msgs.push({r,t});if(CH.msgs.length>60)CH.msgs.shift();renderChat()}
+async function chatSend(raw){const q=String(raw||'').trim().slice(0,300);if(!q||CH.busy||!canEdit)return;
+ CH.pending=null;addMsg('u',q);
+ const fx=fixedCommand(q);if(fx){propose(fx,'');return}
+ if(used()>=CHAT_LIMIT){addMsg('a','Daily limit of '+CHAT_LIMIT+' AI messages reached. Use the quick buttons or commands like “refresh 10/25”, “lock”, “unlock”.');return}
+ if(Date.now()-CH.last<2000){addMsg('a','Please wait a moment between messages.');return}
+ CH.last=Date.now();CH.busy=true;renderChat();
+ try{await ensureAI();aliasEnsure();const user=scrub(q),ctx=buildContext(ym,q);
+  const contents=CH.hist.slice(-4).map(h=>({role:h.r,parts:[{text:h.t}]})).concat([{role:'user',parts:[{text:ctx+'\nQuestion: '+user}]}]);
+  const out=await aiImpl(contents);bump();
+  CH.hist.push({r:'user',t:user},{r:'model',t:(out.text||'(proposed changes)').slice(0,400)});
+  CH.busy=false;propose(out.calls||[],out.text||'')}
+ catch(e){CH.busy=false;addMsg('a',aiErr(e))}}
+function propose(calls,text){const say=text?unscrub(text):'';if(!calls.length){addMsg('a',say||'I didn’t get an answer. Try asking in a different way.');return}
+ const p=buildActions(calls);if(say)CH.msgs.push({r:'a',t:say});
+ if(!p.items.length){addMsg('a',p.errors.join(' ')||'Nothing to change.');return}
+ CH.pending=p;renderChat()}
+function chatApply(){const p=CH.pending;if(!p||!canEdit)return;CH.pending=null;let n=0;
+ p.items.forEach(it=>{try{it.run();n++}catch(e){}});
+ chatLog('Confirmed '+n+' action(s): '+p.items.map(i=>i.text).join('; ').slice(0,300));addMsg('a','Done. '+n+' change(s) applied.')}
+/* ---- quick buttons (no AI, nothing sent anywhere) ---- */
+function quick(kind){const ds=suns(ym),L=[];
+ if(kind==='empty'){ds.forEach(d=>{const e=SL.map((_,i)=>i).filter(i=>!at(d,i)).map(i=>CN[i]);if(e.length)L.push(fmt(d)+': '+e.join(', '))});return L.length?'Empty slots in '+monLabel(ym)+':\n'+L.join('\n'):'No empty slots in '+monLabel(ym)+'.'}
+ if(kind==='count'){const r=ids().map(q=>[q,cnt(q,ym),cnt(q,ym.slice(0,4))]).filter(x=>x[1]||x[2]).sort((a,b)=>b[1]-a[1]||b[2]-a[2]);return r.length?'Services (this month / year):\n'+r.map(x=>nmOf(x[0])+': '+x[1]+' / '+x[2]).join('\n'):'No services yet.'}
+ ds.forEach(d=>SL.forEach((_,i)=>{const q=at(d,i);if(q&&P[q]){const h=iss(q,d,i).h;if(h.length)L.push(fmt(d)+' '+CN[i]+' '+nmOf(q)+': '+h.join(', '))}}));
+ return L.length?'Problems in '+monLabel(ym)+':\n'+L.join('\n'):'No problems found in '+monLabel(ym)+'.'}
+function chatClick(c){
+ if(c==='close'){CH.open=false;chatVis()}
+ else if(c==='clear'){CH.msgs=[];CH.hist=[];CH.pending=null;aliasReset();renderChat()}
+ else if(c==='send'){const i=document.getElementById('cinput');if(i){const v=i.value;i.value='';chatSend(v)}}
+ else if(c==='ok')chatApply();
+ else if(c==='no'){CH.pending=null;addMsg('a','Cancelled.')}
+ else if(c.indexOf('q-')===0){addMsg('a',quick(c.slice(2)))}}
+function renderChat(){const m=document.getElementById('cmsgs');if(!m)return;
+ let h=CH.msgs.length?'':'<div class="sub">Ask about the roster, or ask for a change. Changes need your confirmation. Quick commands: “refresh 10/25”, “lock”, “unlock”.</div>';
+ CH.msgs.forEach(x=>{h+='<div class="cm '+(x.r==='u'?'cu':'ca')+'">'+esc(x.t)+'</div>'});
+ if(CH.pending){const p=CH.pending;h+='<div class="cm ca"><b>Confirm these changes?</b>'+p.items.map(it=>'<div>• '+esc(it.text)+it.warn.map(w=>' <span class="r">⚠ '+esc(w)+'</span>').join('')+'</div>').join('')+p.errors.map(e=>'<div class="sub">'+esc(e)+'</div>').join('')+'<div class="bar" style="margin:8px 0 0"><button data-c="ok">Confirm</button><button class="g" data-c="no">Cancel</button></div></div>'}
+ if(CH.busy)h+='<div class="cm ca sub">Thinking…</div>';
+ m.innerHTML=h;m.scrollTop=m.scrollHeight;
+ const f=document.getElementById('cft');if(f)f.textContent='Names are replaced by codes before anything goes to the AI. '+Math.max(0,CHAT_LIMIT-used())+' of '+CHAT_LIMIT+' AI messages left today.';
+ const mo=document.getElementById('cmon');if(mo)mo.textContent=' · '+monLabel(ym)}
+function chatInit(){const fab=document.createElement('button');fab.className='cfab';fab.textContent='💬';fab.title='Assistant';fab.style.display='none';
+ fab.addEventListener('click',()=>{CH.open=!CH.open;chatVis()});
+ const root=document.createElement('div');root.className='cpanel';root.style.display='none';
+ root.innerHTML='<div class="ch"><b>Assistant</b><span class="sub" id="cmon"></span><span class="cx"><button data-c="clear" title="Clear chat">🗑</button><button data-c="close" title="Close">✕</button></span></div><div class="cmsgs" id="cmsgs"></div><div class="cq"><button data-c="q-empty">Empty slots</button><button data-c="q-count">Counts</button><button data-c="q-prob">Problems</button></div><div class="cin"><input id="cinput" maxlength="300" placeholder="Ask or change something…" autocomplete="off"><button data-c="send">Send</button></div><div class="sub cft" id="cft"></div>';
+ root.addEventListener('click',e=>{const b=e.target.closest('button[data-c]');if(b)chatClick(b.dataset.c)});
+ root.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='cinput'){e.preventDefault();chatClick('send')}});
+ document.body.appendChild(fab);document.body.appendChild(root);CH.fab=fab;CH.root=root}
+function chatVis(){if(!CH.root)return;const ok=!!(user&&canEdit&&!denied);CH.fab.style.display=ok?'block':'none';if(!ok)CH.open=false;CH.root.style.display=ok&&CH.open?'flex':'none';if(ok&&CH.open)renderChat()}
 /* ---------- start ---------- */
+chatInit();
 draw();
 auth.onAuthStateChanged(u=>{unsub.forEach(f=>f());unsub=[];user=u;authReady=true;canEdit=false;denied=false;logOn=false;LG=[];BL={};RU={};LK={};
  if(!u){P={};R={};DB={};SH={};RL={};draw();return}
