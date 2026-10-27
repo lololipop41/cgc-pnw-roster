@@ -31,6 +31,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .pvf{display:flex;justify-content:space-between;gap:12px;padding:8px 8px 2px;font-size:11px;font-size:clamp(9px,1.2cqw,15px);color:#444}.pvf .hlt{color:#8a6d00}
 .rt{table-layout:fixed}.rt td:nth-child(1){width:64px}.rt td:nth-child(2){width:min(300px,45%)}.rt select{width:100%}
 .sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.sh h3{margin:0}.rf{border:1px solid var(--bd);background:var(--sf);color:var(--tx);border-radius:8px;padding:2px 10px;font-size:17px;line-height:1.3;cursor:pointer}
+.mv{display:inline-flex;align-items:center;gap:6px;margin:0 16px 8px 0}
 </style></head><body><script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -82,7 +83,7 @@ function parseSheet(v){const y0=+(((v[0]||[]).join(' ').match(/\d{4}/))||[2026])
 /* ---------- Firebase (shared data) ---------- */
 const firebaseConfig={apiKey:"AIzaSyAOqbTsQoYGubByF3PakBIN6VekjM5vjFc",authDomain:"cgc-pnw-roster.firebaseapp.com",projectId:"cgc-pnw-roster",storageBucket:"cgc-pnw-roster.firebasestorage.app",messagingSenderId:"477625768421",appId:"1:477625768421:web:5cff5214c1fefe23dcb70c"};
 const TABS={vocal_main:'Lead',vocal_sub:'Backup',piano:'Piano',drum:'Drum',bass:'Bass',pa:'PA',ppt:'PPT'};
-let user=null,canEdit=false,denied=false,authReady=false,unsub=[],RU={},LK={},BL={},LG=[],logOpen=new Set(),pvSel=null,showCh=false,ddOpen=false,pq='',pqRaw='',logOn=false;
+let user=null,canEdit=false,denied=false,authReady=false,unsub=[],RU={},LK={},BL={},LG=[],logOpen=new Set(),pvSel=null,pvVer={},showCh=false,ddOpen=false,pq='',pqRaw='',logOn=false;
 firebase.initializeApp(firebaseConfig);const auth=firebase.auth(),fs=firebase.firestore(),FV=firebase.firestore.FieldValue;
 const clean=o=>JSON.parse(JSON.stringify(o));
 const fail=()=>{note='Couldn’t save. You may not have edit access, or you are offline.';draw()};
@@ -121,11 +122,12 @@ function toggleLock(){if(!canEdit)return;LK[ym]=!LK[ym];fs.collection('roster').
 async function doExport(kind){ddOpen=false;const ms=pvList();if(!ms.length){note='Pick at least one month.';draw();return}
  const cv=sheetCanvas(ms,showCh);
  try{if(kind==='pdf')dlBlob(await makePdf(cv),'PnW-schedule.pdf');else dlBlob(await new Promise(r=>cv.toBlob(r,'image/jpeg',.93)),'PnW-schedule.jpg')}catch(x){note='Couldn’t create the file.';draw();return}
- if(canEdit){ms.forEach(m=>{const o=BL[m];if(o&&o.a&&!monthEdited(m,o.a))return;   /* nothing new since the last export: keep that version */
-   const a={};Object.keys(R).filter(k=>k.startsWith(m)).forEach(k=>a[k]=R[k]);
-   const doc={a,v:((o&&o.v)||0)+1,at:Date.now()};if(o&&o.a)doc.prev={a:o.a,v:o.v||1,at:o.at||0};
-   fs.collection('baseline').doc('m'+m).set(doc).catch(fail)});
-  log('Preview','Exported as '+kind.toUpperCase()+' ('+ms.map(monLabel).join(', ')+')')}
+ if(canEdit){const labs=[];ms.forEach(m=>{const sel=pvVer[m]||'latest',vl=verList(m),nums=vNums(m),last=nums[nums.length-1];
+   if(sel!=='latest'&&vl[sel]){labs.push(monLabel(m)+' v'+sel);return}
+   if(last&&!monthEdited(m,vl[last].a)){labs.push(monLabel(m)+' v'+last);return}   /* nothing new since the last export */
+   const n=(last||0)+1,at=Date.now(),vers=BL[m]&&BL[m].vers?{}:Object.assign({},vl);vers[n]={a:liveMonth(m),at};
+   fs.collection('baseline').doc('m'+m).set({v:n,at,vers},{merge:true}).catch(fail);delete pvVer[m];labs.push(monLabel(m)+' v'+n)});
+  log('Preview','Exported as '+kind.toUpperCase()+' ('+labs.join(', ')+')')}
  draw()}
 function slot(k,v){if(!canEdit||LK[k.slice(0,7)])return;v?R[k]=v:delete R[k];fs.collection('roster').doc('m'+k.slice(0,7)).set({a:{[k]:v?v:FV.delete()},u:Date.now()},{merge:true}).catch(fail);RU[k.slice(0,7)]=Date.now();draw()}
 function pushRoster(added){const by={};Object.keys(added).forEach(k=>{const m=k.slice(0,7);(by[m]=by[m]||{})[k]=added[k]});Object.keys(by).forEach(m=>{RU[m]=Date.now();fs.collection('roster').doc('m'+m).set({a:by[m],u:Date.now()},{merge:true}).catch(fail)})}
@@ -192,21 +194,26 @@ function peopleList(){const chk=(f,p,q)=>`<details${od===q+f?' open':''}><summar
  <div style="margin-top:6px"><span class="sub">Only these Sundays of the month (none ticked = any): </span>${[1,2,3,4,5].map(n=>`<label class="k"><input type="checkbox" data-a="nth" data-n="${n}" data-p="${q}"${p.nth.includes(n)?' checked':''}> ${n}</label>`).join('')}</div>
  <input style="width:100%;margin-top:8px" placeholder="Remarks" data-a="pf" data-f="remarks" data-p="${q}" value="${esc(p.remarks)}"></section>`});return h||'<div class="empty">No one matches “'+esc(pqRaw)+'”.</div>'}
 function vPreview(ms){const sel=pvList();
- const info=showCh?'<p class="n">Highlighted = Recent update (compared with the last export). '+sel.map(m=>{const b=baseFor(m);return monLabel(m)+': '+(!b?'no export yet, nothing to compare':b.mode==='last'?'compared with the last export (v'+b.v+')':'no edits since the last export (v'+b.last+'), so it shows what that export changed from v'+b.v)}).join(' · ')+'</p>':'';
- return'<section><h3>Months to preview</h3><div>'+ms.map(m=>`<label class="k"><input type="checkbox" data-a="pvm" data-m="${m}"${sel.includes(m)?' checked':''}> ${monLabel(m)}</label>`).join('')+'</div><div class="bar" style="margin:10px 0 0"><label class="k"><input type="checkbox" data-a="chg"'+(showCh?' checked':'')+'> Show Changes</label><span class="dd"><button data-a="dd">Export As ▾</button>'+(ddOpen?'<div class="ddm"><button data-a="exp" data-k="pdf">PDF</button><button data-a="exp" data-k="jpg">JPG</button></div>':'')+'</span></div>'+info+'</section>'+(sel.length?'<div class="sc"><div class="pvw">'+previewTable(sel,showCh)+'</div></div>':'<div class="empty">Pick at least one month.</div>')}
+ const info=showCh?'<p class="n">Highlighted = Recent update (compared with the previous version). '+sel.map(m=>{const v=mview(m,true);return monLabel(m)+': '+(v.sel==='latest'?(v.cmp?'Latest compared with v'+v.cmp+' (last export)':'no export yet, nothing to compare'):(v.cmp?'v'+v.sel+' compared with v'+v.cmp:'v'+v.sel+' is the first version, nothing to compare'))}).join(' · ')+'</p>':'';
+ return'<section><h3>Months to preview</h3><div>'+ms.map(m=>{const ns=vNums(m);return`<span class="mv"><label class="k"><input type="checkbox" data-a="pvm" data-m="${m}"${sel.includes(m)?' checked':''}> ${monLabel(m)}</label><select data-a="pvv" data-m="${m}" aria-label="Version for ${monLabel(m)}"><option value="latest"${!pvVer[m]||pvVer[m]==='latest'?' selected':''}>Latest</option>${ns.slice().reverse().map(n=>`<option value="${n}"${pvVer[m]==n?' selected':''}>v${n}</option>`).join('')}</select></span>`}).join('')+'</div><div class="bar" style="margin:10px 0 0"><label class="k"><input type="checkbox" data-a="chg"'+(showCh?' checked':'')+'> Show Changes</label><span class="dd"><button data-a="dd">Export As ▾</button>'+(ddOpen?'<div class="ddm"><button data-a="exp" data-k="pdf">PDF</button><button data-a="exp" data-k="jpg">JPG</button></div>':'')+'</span></div>'+info+'</section>'+(sel.length?'<div class="sc"><div class="pvw">'+previewTable(sel,showCh)+'</div></div>':'<div class="empty">Pick at least one month.</div>')}
 const dn=q=>q&&P[q]?P[q].name.split(/\s+/)[0]:(q||'');
-function isChanged(bl,d,i){const cur=dn(at(d,i)),old=dn(bl[d+'|'+i]);
- if(SL[i]==='Backup'){const bs=[1,2].map(j=>dn(bl[d+'|'+j])).filter(Boolean),cs=[1,2].map(j=>dn(at(d,j))).filter(Boolean);
+function isChanged(bl,src,d,i){const cur=dn(src[d+'|'+i]),old=dn(bl[d+'|'+i]);
+ if(SL[i]==='Backup'){const bs=[1,2].map(j=>dn(bl[d+'|'+j])).filter(Boolean),cs=[1,2].map(j=>dn(src[d+'|'+j])).filter(Boolean);
   return cur?!bs.includes(cur):(!!old&&!cs.includes(old))}
  return cur!==old}
-function monthEdited(m,a){return suns(m).some(d=>SL.some((_,i)=>isChanged(a,d,i)))}
-function baseFor(m){const b=BL[m];if(!b||!b.a)return null;
- if(!monthEdited(m,b.a)&&b.prev&&b.prev.a)return{a:b.prev.a,v:b.prev.v||1,mode:'prev',last:b.v||1};
- return{a:b.a,v:b.v||1,mode:'last'}}
-function previewTable(mons,ch){const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
+function liveMonth(m){const o={};Object.keys(R).filter(k=>k.startsWith(m)).forEach(k=>o[k]=R[k]);return o}
+function verList(m){const b=BL[m],o={};if(!b)return o;
+ if(b.vers){Object.keys(b.vers).forEach(k=>{if(b.vers[k]&&b.vers[k].a)o[k]=b.vers[k]});return o}
+ if(b.prev&&b.prev.a)o[b.prev.v||1]={a:b.prev.a,at:b.prev.at||0};if(b.a)o[b.v||1]={a:b.a,at:b.at||0};return o}   /* older saved format */
+const vNums=m=>Object.keys(verList(m)).map(Number).sort((a,b)=>a-b);
+function monthEdited(m,a){const live=liveMonth(m);return suns(m).some(d=>SL.some((_,i)=>isChanged(a,live,d,i)))}
+function mview(m,ch){const sel=pvVer[m]||'latest',vl=verList(m),nums=vNums(m),last=nums[nums.length-1];
+ if(sel!=='latest'&&vl[sel]){const p=nums.filter(x=>x<+sel).pop();return{src:vl[sel].a,at:vl[sel].at||0,baseA:ch&&p?vl[p].a:null,sel:+sel,cmp:p||0}}
+ return{src:liveMonth(m),at:RU[m]||0,baseA:ch&&last?vl[last].a:null,sel:'latest',cmp:last||0}}
+function previewTable(mons,ch){const V={};mons.forEach(m=>V[m]=mview(m,ch));const upd=Math.max(0,...mons.map(m=>V[m].at))||Date.now();
  let h='<table class="pvt"><colgroup><col style="width:'+(110/1230*100)+'%">'+SL.map(()=>'<col style="width:'+(140/1230*100)+'%">').join('')+'</colgroup><tr><th>日期</th><th>领唱</th><th colspan="2">助唱</th><th>司琴</th><th>贝斯</th><th>鼓手</th><th>音响</th><th>PPT</th></tr>';
- mons.forEach(m=>{h+='<tr><td class="bn" colspan="9">'+monLabel(m)+'</td></tr>';const bs=ch&&baseFor(m),bl=bs&&bs.a;
-  suns(m).forEach(d=>{h+='<tr><td>'+(+d.slice(8))+'-'+MN[+d.slice(5,7)-1]+'</td>'+SL.map((_,i)=>{const q=at(d,i),c=bl&&isChanged(bl,d,i);return'<td'+(c?' class="hl"':'')+'>'+(q&&P[q]?esc(P[q].name.split(/\s+/)[0]):'')+'</td>'}).join('')+'</tr>'})});
+ mons.forEach(m=>{const v=V[m];h+='<tr><td class="bn" colspan="9">'+monLabel(m)+'</td></tr>';
+  suns(m).forEach(d=>{h+='<tr><td>'+(+d.slice(8))+'-'+MN[+d.slice(5,7)-1]+'</td>'+SL.map((_,i)=>{const q=v.src[d+'|'+i],c=v.baseA&&isChanged(v.baseA,v.src,d,i);return'<td'+(c?' class="hl"':'')+'>'+(q&&P[q]?esc(P[q].name.split(/\s+/)[0]):'')+'</td>'}).join('')+'</tr>'})});
  return h+'</table><div class="pvf"><span class="hlt">'+(ch?'Highlighted = Recent update':'')+'</span><span>Updated at: '+fmtU(upd)+'</span></div>'}
 function vLog(){if(!LG.length)return'<div class="empty">No activity yet.</div>';const g={};LG.forEach(x=>{const d=fmtDay(x.t);(g[d]=g[d]||[]).push(x)});
  return Object.keys(g).sort().reverse().map(d=>`<section><button class="dayh" data-a="logday" data-d="${d}">${logOpen.has(d)?'▾':'▸'} ${d} <span class="sub">(${g[d].length})</span></button>${logOpen.has(d)?'<div class="loglist">'+g[d].slice().reverse().map(x=>`<div class="ll">${esc(fmtDT(x.t)+' ['+x.u+'] '+x.tab+': '+x.msg)}</div>`).join('')+'</div>':''}</section>`).join('')}
@@ -231,7 +238,7 @@ function draw(){
 function sheetCanvas(mons,ch){
  const cw=[110,...SL.map(()=>140)],W=cw.reduce((a,b)=>a+b,0),HH=48,RH=48,FH=46,xs=[0];cw.forEach(w=>xs.push(xs[xs.length-1]+w));
  const rows=[];mons.forEach(m=>{rows.push({b:monLabel(m)});suns(m).forEach(d=>rows.push({d,m}))});
- const BF={};if(ch)mons.forEach(m=>{BF[m]=baseFor(m)});
+ const V={};mons.forEach(m=>V[m]=mview(m,ch));
  const H=HH+rows.length*RH,S=2,cv=document.createElement('canvas');cv.width=W*S;cv.height=(H+FH+4)*S;const c=cv.getContext('2d');c.scale(S,S);
  c.fillStyle='#fff';c.fillRect(0,0,W,H+FH+4);c.translate(0,2);c.strokeStyle='#000';c.lineWidth=1.2;c.textAlign='center';c.textBaseline='middle';
  const F='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC","Heiti SC",sans-serif',ln=(x1,y1,x2,y2)=>{c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke()};
@@ -241,11 +248,11 @@ function sheetCanvas(mons,ch){
  let y=HH;c.font='22px '+F;
  rows.forEach(r=>{if(r.b){c.fillStyle='#d9d9d9';c.fillRect(0,y,W,RH);c.fillStyle='#000';c.fillText(r.b,W/2,y+RH/2);ln(0,y,0,y+RH);ln(W,y,W,y+RH)}
   else{c.fillStyle='#000';c.fillText(+r.d.slice(8)+'-'+MN[+r.d.slice(5,7)-1],cw[0]/2,y+RH/2);
-   const bs=ch&&BF[r.m],bl=bs&&bs.a;
-   SL.forEach((_,i)=>{const q=at(r.d,i),x=xs[i+1];if(bl&&isChanged(bl,r.d,i)){c.fillStyle='#ffe066';c.fillRect(x+1,y+1,cw[i+1]-2,RH-2)}
+   const v=V[r.m],bl=v.baseA;
+   SL.forEach((_,i)=>{const q=v.src[r.d+'|'+i],x=xs[i+1];if(bl&&isChanged(bl,v.src,r.d,i)){c.fillStyle='#ffe066';c.fillRect(x+1,y+1,cw[i+1]-2,RH-2)}
     c.fillStyle='#000';if(q&&P[q])c.fillText(P[q].name.split(/\s+/)[0],x+cw[i+1]/2,y+RH/2)});xs.forEach(x=>ln(x,y,x,y+RH))}
   ln(0,y+RH,W,y+RH);y+=RH});
- const upd=Math.max(0,...mons.map(m=>RU[m]||0))||Date.now();
+ const upd=Math.max(0,...mons.map(m=>V[m].at))||Date.now();
  c.font='15px '+F;c.fillStyle='#444';c.textAlign='right';c.fillText('Updated at: '+fmtU(upd),W-8,H+FH/2);
  if(ch){c.textAlign='left';c.fillStyle='#8a6d00';c.fillText('Highlighted = Recent update',8,H+FH/2)}
  return cv}
@@ -262,7 +269,7 @@ async function makePdf(cv){const blob=await new Promise(r=>cv.toBlob(r,'image/jp
 /* ---------- events ---------- */
 document.addEventListener('click',async e=>{if(ddOpen&&!e.target.closest('.dd')){ddOpen=false;draw()}const b=e.target.closest('button[data-a]');if(!b)return;const a=b.dataset.a;
  if(a==='login')login();else if(a==='logout')auth.signOut();
- else if(a==='tab'){tab=b.dataset.t;note='';if(tab==='roster')ym=curMonth();draw()}
+ else if(a==='tab'){tab=b.dataset.t;note='';if(tab==='roster')ym=curMonth();if(tab==='preview')pvVer={};draw()}
  else if(a==='lock')toggleLock();
  else if(a==='refresh')refreshDay(b.dataset.d);
  else if(a==='dd'){ddOpen=!ddOpen;draw()}
@@ -277,6 +284,7 @@ document.addEventListener('change',e=>{const t=e.target,a=t.dataset.a;if(!a)retu
  if(a==='month'){ym=t.value;draw()}
  else if(a==='set'){const k=t.dataset.k,sp=k.split('|'),o=R[k],nv=t.value;if(LK[sp[0].slice(0,7)]){draw();return}slot(k,nv);log('Roster',`Updated ${ord(+sp[0].slice(8))} ${CN[sp[1]]} - '${o&&P[o]?P[o].name:'empty'}' to '${nv&&P[nv]?P[nv].name:'empty'}' (${monLabel(sp[0].slice(0,7))})`)}
  else if(a==='pvm'){const st=new Set(pvList());t.checked?st.add(t.dataset.m):st.delete(t.dataset.m);pvSel=[...st].sort();draw()}
+ else if(a==='pvv'){pvVer[t.dataset.m]=t.value;draw()}
  else if(a==='chg'){showCh=t.checked;draw()}
  else if(a==='pf'){const f=t.dataset.f;patch(id,{[f]:f==='max'?Math.max(1,+t.value||3):t.value});if(P[id])log('People','Updated '+P[id].name)}
  else if(a==='role'){const s=new Set(P[id].roles);t.checked?s.add(t.dataset.r):s.delete(t.dataset.r);patch(id,{roles:[...s]});log('People','Updated '+P[id].name)}
