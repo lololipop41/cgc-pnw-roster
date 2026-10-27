@@ -18,6 +18,7 @@ Static web app. `index.html` is the whole app. Everyone who opens the link and s
   - **Remarks:** only sent when your question mentions remarks, notes or partners, and the names inside them are replaced by codes.
   - **Month:** it uses the month shown in Roster or Availability.
   - **Free AI:** it uses Gemini through Firebase AI Logic on the no-cost plan (no billing). Default model `gemini-3.5-flash-lite`, with `gemini-3.1-flash-lite` and `gemini-2.5-flash-lite` as fallbacks. If the free quota runs out the chat pauses and nothing is charged.
+  - **Errors:** when the AI fails, the chat shows a plain message and a `(details: …)` line with the real error from Google. If one model is out of quota or missing, the next model is tried automatically.
   - **Token saving:** one AI request per message; only the current month in a compact table; the last two exchanges as history; short answers. Quick buttons (**Empty slots**, **Counts**, **Problems**) and the commands `refresh 10/25`, `lock`, `unlock` never call the AI. Limit: 20 AI messages per day per browser (a soft limit kept in the browser) and a 2 second gap between messages.
 - **Lock (Roster tab):** the lock icon at the far right of the Clear month row locks the roster for the selected month, for everyone. **Auto-fill empty slots**, **Clear month** and every slot dropdown are disabled, so nothing in that month's roster can change. Click it again to unlock. Availability and People can still be edited.
 - **Log tab (editors only):** who did what, grouped by date. Click a date to open it.

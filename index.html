@@ -355,11 +355,11 @@ function fixedCommand(q){const t=q.trim();let m;
 const DK=()=>'pnw.chat.'+fmtDay(Date.now()).replace(/\//g,'');
 function used(){try{return+localStorage.getItem(DK())||0}catch(e){return 0}}
 function bump(){try{localStorage.setItem(DK(),String(used()+1))}catch(e){}}
-function aiErr(e){const s=String((e&&(e.message||e.code))||e);
- if(/Failed to fetch|import|network|load/i.test(s))return'Couldn’t load the AI library. Check your connection and try again.';
- if(/429|quota|RESOURCE_EXHAUSTED|rate/i.test(s))return'The free AI quota is used up for now. Try again later, or use the quick buttons.';
- if(/PERMISSION_DENIED|403|not been used|not enabled|api-not-enabled|API key/i.test(s))return'Firebase AI Logic is not available for this project. In the Firebase console open AI Logic and make sure the Gemini Developer API is enabled.';
- return'AI error: '+s.slice(0,140)}
+function aiErr(e){const s=String((e&&(e.message||e.code))||e),d='\n(details: '+s.replace(/\s+/g,' ').slice(0,180)+')';
+ if(/Failed to fetch|Failed to load module|Importing a module script failed|dynamically imported module|NetworkError|net::ERR/i.test(s))return'Couldn’t load the AI library. Check your connection and try again.'+d;
+ if(/\b429\b|RESOURCE_EXHAUSTED|quota|too many requests|rate.?limit/i.test(s))return'The free AI quota is used up for now (all models were tried). Try again later, or use the quick buttons.'+d;
+ if(/PERMISSION_DENIED|\b403\b|not been used|not enabled|api-not-enabled|API.?key|referrer/i.test(s))return'The AI is blocked for this project or website. Check that Firebase AI Logic is enabled with the Gemini Developer API and that the API key allows this website.'+d;
+ return'AI error.'+d}
 /* ---- the AI (loaded only when first used) ---- */
 async function ensureAI(){if(aiImpl)return;
  const[A,M]=await Promise.all([import(SDK+'firebase-app.js'),import(SDK+'firebase-ai.js')]);
@@ -371,12 +371,14 @@ async function ensureAI(){if(aiImpl)return;
   {name:'auto_fill_month',description:'Auto-fill the empty slots of a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
   {name:'clear_month',description:'Clear every name in a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
   {name:'set_lock',description:'Lock or unlock the roster of a month.',parameters:S.object({properties:{month:str('YYYY-MM'),locked:S.boolean()}})}]}];
- let mi=0;
- aiImpl=async contents=>{for(;mi<MODELS.length;mi++){try{
-   const model=M.getGenerativeModel(ai,{model:MODELS[mi],tools,systemInstruction:SYS,generationConfig:{maxOutputTokens:1024,temperature:0.2}});
+ aiImpl=contents=>withFallback(async name=>{
+   const model=M.getGenerativeModel(ai,{model:name,tools,systemInstruction:SYS,generationConfig:{maxOutputTokens:1024,temperature:0.2}});
    const rs=(await model.generateContent({contents})).response;let calls=[],text='';
-   try{calls=(rs.functionCalls&&rs.functionCalls())||[]}catch(e){}try{text=rs.text()}catch(e){}return{text,calls}
-  }catch(e){if(/not.?found|404|not supported|unsupported/i.test(String((e&&e.message)||e))&&mi<MODELS.length-1)continue;throw e}}}}
+   try{calls=(rs.functionCalls&&rs.functionCalls())||[]}catch(e){}try{text=rs.text()}catch(e){}return{text,calls}})}
+let modelIdx=0;
+async function withFallback(call){let last;for(let k=0;k<MODELS.length;k++){const i=(modelIdx+k)%MODELS.length;
+ try{const r=await call(MODELS[i]);modelIdx=i;return r}
+ catch(e){last=e;if(/\b429\b|RESOURCE_EXHAUSTED|quota|\b404\b|not.?found|not supported|unsupported/i.test(String((e&&e.message)||e)))continue;throw e}}throw last}
 /* ---- chat flow ---- */
 function addMsg(r,t){CH.msgs.push({r,t});if(CH.msgs.length>60)CH.msgs.shift();renderChat()}
 async function chatSend(raw){const q=String(raw||'').trim().slice(0,300);if(!q||CH.busy||!canEdit)return;
@@ -390,7 +392,7 @@ async function chatSend(raw){const q=String(raw||'').trim().slice(0,300);if(!q||
   const out=await aiImpl(contents);bump();
   CH.hist.push({r:'user',t:user},{r:'model',t:(out.text||'(proposed changes)').slice(0,400)});
   CH.busy=false;propose(out.calls||[],out.text||'')}
- catch(e){CH.busy=false;addMsg('a',aiErr(e))}}
+ catch(e){CH.busy=false;try{console.error('Assistant error',e)}catch(x){}addMsg('a',aiErr(e))}}
 function propose(calls,text){const say=text?unscrub(text):'';if(!calls.length){addMsg('a',say||'I didn’t get an answer. Try asking in a different way.');return}
  const p=buildActions(calls);if(say)CH.msgs.push({r:'a',t:say});
  if(!p.items.length){addMsg('a',p.errors.join(' ')||'Nothing to change.');return}
