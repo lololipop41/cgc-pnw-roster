@@ -170,11 +170,12 @@ function iss(pid,d,i){const p=P[pid],h=[],s=[];if(!p)return{h,s};
  const nth=Math.ceil(+d.slice(8)/7);if(p.nth.length&&!p.nth.includes(nth))h.push('Only Sunday '+p.nth.join('/')+' of month');
  for(const q of Object.keys(P))if(q!==pid&&on(d,q,-1)&&(P[q].avoid.includes(pid)||p.avoid.includes(q)))h.push('Avoid '+P[q].name.split(/\s+/)[0]);
  p.partner.forEach(q=>{if(P[q]&&!on(d,q,-1))s.push('Wants '+P[q].name.split(/\s+/)[0])});return{h,s}}
-function draft(){if(!canEdit||LK[ym])return;const added={},yr=ym.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
- for(const d of suns(ym)){const order=SL.map((_,i)=>i).filter(i=>!at(d,i)).sort((a,b)=>el(d,a).length-el(d,b).length);
+function fillPlan(m){const added={},yr=m.slice(0,4),el=(d,i)=>Object.keys(P).filter(q=>!iss(q,d,i).h.length);
+ for(const d of suns(m)){const order=SL.map((_,i)=>i).filter(i=>!at(d,i)).sort((a,b)=>el(d,a).length-el(d,b).length);
   for(const i of order){const c=el(d,i);if(!c.length)continue;
    const sc=q=>cnt(q,yr)*10-(P[q].partner.some(x=>on(d,x,-1))?5:0)-(Object.keys(P).some(x=>P[x].partner.includes(q)&&on(d,x,-1))?5:0)+(P[q].roles.length)*0.5+Math.random()*3;
-   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0];added[d+'|'+i]=c[0]}}pushRoster(added);log('Roster','Auto-filled empty slots ('+monLabel(ym)+')');draw()}
+   c.sort((a,b)=>sc(a)-sc(b));R[d+'|'+i]=c[0];added[d+'|'+i]=c[0]}}return added}
+function draft(){if(!canEdit||LK[ym])return;const added=fillPlan(ym);pushRoster(added);log('Roster','Auto-filled empty slots ('+monLabel(ym)+')');draw()}
 /* ---------- views ---------- */
 function vRoster(){const ds=suns(ym);if(!ids().length)return'<div class="empty">'+'No people yet. An editor needs to press Sync Sheet to load the Google Sheet.'+'</div>';
  const lk=!!LK[ym];let n=0;ds.forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))n++}));
@@ -300,9 +301,14 @@ document.addEventListener('input',e=>{const t=e.target;if(t.dataset&&t.dataset.a
 /* ---------- Assistant (editors only) ---------- */
 /* Real names never leave the browser: people are sent to the AI as random codes (P01, P02, ...). */
 const SLN=['Lead','Backup1','Backup2','Piano','Bass','Drum','PA','PPT'],SLX={Lead:0,Backup1:1,Backup2:2,Piano:3,Bass:4,Drum:5,PA:6,PPT:7};
-const CHAT_LIMIT=20,MODELS=['gemini-3.5-flash-lite','gemini-3.1-flash-lite','gemini-2.5-flash-lite'],SDK='https://www.gstatic.com/firebasejs/12.19.0/';
-const SYS='You are the scheduling assistant for a church Praise & Worship team. People appear only as codes (P01, P02, ...); always use the codes exactly. Use only the data given and never guess. Slots: Lead, Backup1, Backup2, Piano, Bass, Drum, PA, PPT. Dates are Sundays (YYYY-MM-DD). Answer briefly (max 60 words) in the same language as the user. To change anything, call the provided functions (several calls are fine) instead of describing the change in text. If the person, date or slot is unclear, ask one short question. Rules to respect: roles, availability, never two Sundays in a row, max per month, partner and avoid lists.';
-const CH={open:false,msgs:[],hist:[],pending:null,busy:false,last:0,root:null,fab:null};
+/* Firebase AI Logic requires App Check. Paste your reCAPTCHA Enterprise site key here (see README). */
+let APPCHECK_KEY='6LcUxAIuAAAAADMHvO1rMlKHQTjBuoAnfmh_5NIy';
+const SDK='https://www.gstatic.com/firebasejs/12.19.0/';
+/* Reasoning questions use the stronger Flash model. Turning an explicit request into changes uses the cheaper Flash-Lite. None of these need billing (Firebase docs, Oct 2026). */
+const MODELS_ASK=['gemini-3.8-flash','gemini-3.5-flash','gemini-3.5-flash-lite'],MODELS_ACT=['gemini-3.5-flash-lite','gemini-3.5-flash'];
+const SYS_ASK='You are an analyst for the scheduling team of a church Praise & Worship ministry. People appear only as codes (P01, P02, ...); always use the codes exactly. Use ONLY the data provided and say so when something is missing; never invent people, availability or rules. Think step by step before you answer: (1) restate what is asked and which month; (2) check the facts that matter in the data (availability, roles, no two Sundays in a row, max per month, prefers-with / never-with, role history); (3) point out conflicts, scarce roles and fairness or rotation problems with specific codes, Sundays and roles; (4) end with a clear conclusion and a recommendation, including whether the Auto-fill simulation is good enough or what to adjust by hand. Rotation means spreading each role over different eligible people during the month and not repeating the same person in the same role when others can do it, without breaking the rules. Do NOT make or propose to make changes unless the user asks, and never output function calls. You may describe options in words. If the user might want you to act on them, end with one short line offering to prepare the changes. Reply in the language of the user, concisely but completely (about 250 words at most), using short bullet points. If the question is unclear, ask one short question.';
+const SYS_ACT='You turn the user\'s request into function calls for a church Praise & Worship roster. People appear only as codes (P01, P02, ...). Only do what the user asked. If they say to apply or do what you suggested earlier, use the suggestions in your previous reply and nothing else. If the message is not clearly a request to change something, answer in one or two sentences without calling any function. If the person, date or slot is unclear, ask one short question instead of guessing. Reply in the language of the user.';
+const CH={open:false,msgs:[],hist:[],pending:null,busy:false,last:0,offer:false,root:null,fab:null};
 let AL={code:{},id:{}},aiImpl=null;
 const escRe=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),nmOf=q=>q&&P[q]?P[q].name:'(empty)';
 function aliasReset(){const a=ids().slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
@@ -314,14 +320,44 @@ function scrub(text){aliasEnsure();const who={},pairs=[];
  pairs.sort((a,b)=>b[0].length-a[0].length);let t=String(text);
  pairs.forEach(([x,q])=>{const rep=who[x.toLowerCase()].size>1?'[?]':AL.code[q];t=t.replace(/^[\x00-\x7f]+$/.test(x)?new RegExp('\\b'+escRe(x)+'\\b','gi'):new RegExp(escRe(x),'g'),rep)});return t}
 const unscrub=t=>String(t).replace(/\bP\d{2,3}\b/g,c=>AL.id[c]&&P[AL.id[c]]?P[AL.id[c]].name:c);
-function buildContext(m,q){aliasEnsure();const ds=suns(m),yr=m.slice(0,4),withRem=/remark|note|备注|備註|request|要求|一起|together|partner|why|为什么|為什麼/i.test(q),c=id=>AL.code[id]||'?';
- const L=['Month '+m+(LK[m]?' (LOCKED)':'')+'. Sundays: '+ds.map(d=>d.slice(5)).join(' ')+'. Slots: '+SLN.join(',')+'.','People: code | roles | max per month | prefers with | never with | only Sunday no. | served month/year'];
- ids().forEach(x=>{const p=P[x];L.push([c(x),p.roles.join('/')||'-',p.max,p.partner.map(c).join('/')||'-',p.avoid.map(c).join('/')||'-',p.nth.join('/')||'any',cnt(x,m)+'/'+cnt(x,yr)].join(' | ')+(withRem&&p.remarks?' | note: '+scrub(p.remarks).slice(0,80):''))});
+const codeOf=x=>AL.code[x]||'?',ROLE_NAMES=['Lead','Backup','Piano','Bass','Drum','PA','PPT'];
+function roleTally(yr){const t={};ids().forEach(x=>{t[x]={}});Object.keys(R).forEach(k=>{if(!k.startsWith(yr)||!t[R[k]])return;const r=SL[+k.split('|')[1]];t[R[k]][r]=(t[R[k]][r]||0)+1});return t}
+function simulateFill(m){const saved=Object.assign({},R),empty=[];
+ suns(m).forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))empty.push([d,i])}));
+ fillPlan(m);const after=Object.assign({},R),left=[];
+ empty.forEach(([d,i])=>{if(after[d+'|'+i])return;const pool=ids().filter(x=>P[x].roles.includes(SL[i]));let why;
+  if(!pool.length)why='nobody has this role';
+  else{const av=pool.filter(x=>P[x].avail[d]==='Y');
+   if(!av.length)why='nobody who can do it is available ('+pool.length+' can do the role)';
+   else{const rs={};av.forEach(x=>{iss(x,d,i).h.forEach(h=>{const k=/^Avoid /.test(h)?'never-with conflict':h;(rs[k]=rs[k]||[]).push(codeOf(x))})});
+    why='available but blocked: '+(Object.keys(rs).map(k=>k+' ('+rs[k].join(',')+')').join('; ')||'unknown')}}
+  left.push(d.slice(5)+' '+SLN[i]+': '+why)});
+ R=saved;return{total:empty.length,filled:empty.length-left.length,after,left}}
+function buildContext(m,q,deep){aliasEnsure();const ds=suns(m),yr=m.slice(0,4),c=codeOf,
+ withRem=/remark|note|备注|備註|request|要求|一起|together|partner|why|为什么|為什麼/i.test(q);
+ const L=['Today '+new Date().toISOString().slice(0,10)+'. Month '+m+(LK[m]?' (LOCKED)':'')+'. Sundays: '+ds.map(d=>d.slice(5)).join(' ')+'. Slots: '+SLN.join(',')+'.'];
+ L.push('Rules: a person max per month as listed; nobody serves two Sundays in a row; only roles listed; only when available.');
+ L.push('People: code | roles | max per month | prefers with | never with | only Sunday no. | served this month/year'+(deep?' | roles served this year':''));
+ const tally=deep?roleTally(yr):null;
+ ids().forEach(x=>{const p=P[x];L.push([c(x),p.roles.join('/')||'-',p.max,p.partner.map(c).join('/')||'-',p.avoid.map(c).join('/')||'-',p.nth.join('/')||'any',cnt(x,m)+'/'+cnt(x,yr)].join(' | ')
+  +(deep?' | '+(Object.keys(tally[x]).map(r=>r+'×'+tally[x][r]).join(' ')||'-'):'')+(withRem&&p.remarks?' | note: '+scrub(p.remarks).slice(0,80):''))});
  L.push('Availability, one character per Sunday in order (Y yes, N no, B busy elsewhere, - unknown):');
  ids().forEach(x=>L.push(c(x)+' '+ds.map(d=>({Y:'Y',N:'N',B:'B'}[P[x].avail[d]]||'-')).join('')));
- L.push('Roster:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>{const x=at(d,i);return SLN[i]+'='+(x&&AL.code[x]?AL.code[x]:'-')}).join(' ')));
+ L.push('Current roster:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>{const x=at(d,i);return SLN[i]+'='+(x&&AL.code[x]?AL.code[x]:'-')}).join(' ')));
  const pr=[];ds.forEach(d=>SL.forEach((_,i)=>{const x=at(d,i);if(x&&P[x]){const h=iss(x,d,i).h;if(h.length)pr.push(d.slice(5)+' '+SLN[i]+'='+c(x)+': '+scrub(h.join(', ')))}}));
- if(pr.length){L.push('Problems:');pr.forEach(x=>L.push(x))}
+ if(pr.length){L.push('Problems in the current roster:');pr.forEach(x=>L.push(x))}
+ if(deep){
+  L.push('Role pools (people who can do the role) and who is available on each Sunday:');
+  ROLE_NAMES.forEach(r=>{const pool=ids().filter(x=>P[x].roles.includes(r));
+   L.push(r+' ('+pool.length+'): '+(pool.map(c).join(' ')||'nobody')+' || '+ds.map(d=>d.slice(5)+': '+(pool.filter(x=>P[x].avail[d]==='Y').map(c).join(' ')||'none')).join(' | '))});
+  L.push('Role history this year (who served the role how many times, current roster included):');
+  ROLE_NAMES.forEach(r=>{const a=ids().filter(x=>tally[x][r]).map(x=>c(x)+'×'+tally[x][r]);L.push(r+': '+(a.join(' ')||'nobody yet'))});
+  const sim=simulateFill(m);
+  L.push('Auto-fill simulation (NOT applied): it would fill '+sim.filled+' of '+sim.total+' empty slots.');
+  if(sim.total){L.push('Roster if Auto-fill ran:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>SLN[i]+'='+(sim.after[d+'|'+i]?c(sim.after[d+'|'+i]):'-')).join(' ')));
+   if(sim.left.length){L.push('Still empty after Auto-fill, and why:');sim.left.forEach(x=>L.push(x))}
+   const ld={};Object.keys(sim.after).filter(k=>k.startsWith(m)).forEach(k=>{ld[sim.after[k]]=(ld[sim.after[k]]||0)+1});
+   L.push('Services this month if Auto-fill ran: '+(Object.keys(ld).map(x=>c(x)+'='+ld[x]).join(' ')||'none'))}}
  return L.join('\n')}
 /* ---- turn the AI's function calls into a list the editor must confirm ---- */
 const isSun=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')&&new Date(d+'T00:00:00Z').getUTCDay()===0,isMon=m=>/^\d{4}-\d{2}$/.test(m||'');
@@ -346,24 +382,27 @@ function buildActions(calls){const items=[],errors=[];
    items.push({text:(want?'Lock ':'Unlock ')+monLabel(m),warn:[],run:()=>{const keep=ym;ym=m;toggleLock();ym=keep;draw()}})}
   else err('Unknown action.')});
  return{items,errors}}
+function wantsAction(q){const t=String(q).trim();
+ if(/\b(should|whether|if i|what if|would it|is it (ok|good|better))\b|是否|要不要|该不该|应不应该|如果|会不会|有没有必要/i.test(t))return false;
+ if(/^(please |pls |can you |could you |kindly )?(swap|assign|replace|put|move|set|change|update|clear|lock|unlock|refresh|auto[- ]?fill|fill|rotate)\b/i.test(t))return true;
+ return /\b(apply|do it|go ahead|execute|confirm|prepare (the |these |those )?changes?|make (the |these |those )?changes?)\b|帮我(?!检查|查|看|分析|评估|比较|想|解释|算|判断|回答)|请(你)?(帮我)?(改|换|排|填|清|锁|执行|应用)|换成|改成|排到|排成|填满|填好|清空|锁定|解锁|执行|套用|应用|照做|做吧|就这样|开始排/i.test(t)}
 function fixedCommand(q){const t=q.trim();let m;
  if(m=/^(refresh|刷新)\s*(\d{1,2})[\/\-.](\d{1,2})$/i.exec(t))return[{name:'refresh_sunday',args:{date:ym.slice(0,4)+'-'+p2(+m[2])+'-'+p2(+m[3])}}];
  if(/^(lock|锁定|锁)$/i.test(t))return[{name:'set_lock',args:{month:ym,locked:true}}];
  if(/^(unlock|解锁)$/i.test(t))return[{name:'set_lock',args:{month:ym,locked:false}}];
  return null}
-/* ---- limits ---- */
-const DK=()=>'pnw.chat.'+fmtDay(Date.now()).replace(/\//g,'');
-function used(){try{return+localStorage.getItem(DK())||0}catch(e){return 0}}
-function bump(){try{localStorage.setItem(DK(),String(used()+1))}catch(e){}}
 function aiErr(e){const s=String((e&&(e.message||e.code))||e),d='\n(details: '+s.replace(/\s+/g,' ').slice(0,180)+')';
+ if(/App ?Check/i.test(s))return(/^PASTE/.test(APPCHECK_KEY)?'Firebase AI Logic needs App Check and the App Check key is not set yet. Create a reCAPTCHA Enterprise key, register it in Firebase → App Check, and paste it into APPCHECK_KEY in index.html (steps are in the README).':'App Check rejected this website. Make sure the reCAPTCHA key lists this website’s domain and that this web app is registered in Firebase → App Check with the same key.')+d;
  if(/Failed to fetch|Failed to load module|Importing a module script failed|dynamically imported module|NetworkError|net::ERR/i.test(s))return'Couldn’t load the AI library. Check your connection and try again.'+d;
  if(/\b429\b|RESOURCE_EXHAUSTED|quota|too many requests|rate.?limit/i.test(s))return'The free AI quota is used up for now (all models were tried). Try again later, or use the quick buttons.'+d;
  if(/PERMISSION_DENIED|\b403\b|not been used|not enabled|api-not-enabled|API.?key|referrer/i.test(s))return'The AI is blocked for this project or website. Check that Firebase AI Logic is enabled with the Gemini Developer API and that the API key allows this website.'+d;
  return'AI error.'+d}
 /* ---- the AI (loaded only when first used) ---- */
 async function ensureAI(){if(aiImpl)return;
- const[A,M]=await Promise.all([import(SDK+'firebase-app.js'),import(SDK+'firebase-ai.js')]);
- const app=A.initializeApp(firebaseConfig,'ai-chat'),ai=M.getAI(app,{backend:new M.GoogleAIBackend()}),S=M.Schema,str=d=>S.string({description:d});
+ const[A,M,C]=await Promise.all([import(SDK+'firebase-app.js'),import(SDK+'firebase-ai.js'),import(SDK+'firebase-app-check.js')]);
+ const app=A.initializeApp(firebaseConfig,'ai-chat');
+ if(!/^PASTE/.test(APPCHECK_KEY))C.initializeAppCheck(app,{provider:new C.ReCaptchaEnterpriseProvider(APPCHECK_KEY),isTokenAutoRefreshEnabled:true});
+ const ai=M.getAI(app,{backend:new M.GoogleAIBackend()}),S=M.Schema,str=d=>S.string({description:d});
  const tools=[{functionDeclarations:[
   {name:'assign_slot',description:'Put one person in one slot on a Sunday, or clear the slot with person "none".',parameters:S.object({properties:{date:str('Sunday, YYYY-MM-DD'),slot:S.enumString({enum:SLN}),person:str('person code such as P07, or none')}})},
   {name:'set_availability',description:'Set one person availability on a Sunday.',parameters:S.object({properties:{person:str('person code'),date:str('Sunday, YYYY-MM-DD'),value:S.enumString({enum:['Yes','No','Busy','Blank']})}})},
@@ -371,27 +410,29 @@ async function ensureAI(){if(aiImpl)return;
   {name:'auto_fill_month',description:'Auto-fill the empty slots of a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
   {name:'clear_month',description:'Clear every name in a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
   {name:'set_lock',description:'Lock or unlock the roster of a month.',parameters:S.object({properties:{month:str('YYYY-MM'),locked:S.boolean()}})}]}];
- aiImpl=contents=>withFallback(async name=>{
-   const model=M.getGenerativeModel(ai,{model:name,tools,systemInstruction:SYS,generationConfig:{maxOutputTokens:1024,temperature:0.2}});
-   const rs=(await model.generateContent({contents})).response;let calls=[],text='';
-   try{calls=(rs.functionCalls&&rs.functionCalls())||[]}catch(e){}try{text=rs.text()}catch(e){}return{text,calls}})}
-let modelIdx=0;
-async function withFallback(call){let last;for(let k=0;k<MODELS.length;k++){const i=(modelIdx+k)%MODELS.length;
- try{const r=await call(MODELS[i]);modelIdx=i;return r}
- catch(e){last=e;if(/\b429\b|RESOURCE_EXHAUSTED|quota|\b404\b|not.?found|not supported|unsupported/i.test(String((e&&e.message)||e)))continue;throw e}}throw last}
+ const TL=M.ThinkingLevel,think=TL?{thinkingConfig:{thinkingLevel:TL.MEDIUM||TL.HIGH||TL.LOW}}:{};
+ const build=(name,act,th)=>M.getGenerativeModel(ai,Object.assign({model:name,systemInstruction:act?SYS_ACT:SYS_ASK,generationConfig:Object.assign({maxOutputTokens:act?1024:4096,temperature:act?0.2:0.3},th?think:{})},act?{tools}:{}));
+ aiImpl=(contents,act)=>withFallback(act?MODELS_ACT:MODELS_ASK,async name=>{
+   const run=async th=>{const rs=(await build(name,act,th).generateContent({contents})).response;let calls=[],text='';
+    try{calls=(rs.functionCalls&&rs.functionCalls())||[]}catch(e){}try{text=rs.text()}catch(e){}return{text,calls}};
+   try{return await run(!act)}catch(e){if(!act&&/thinking/i.test(String((e&&e.message)||e)))return run(false);throw e}})}
+const modelIdx={};
+const fallbackable=e=>{const m=String((e&&e.message)||e);return!/App ?Check/i.test(m)&&/\b429\b|RESOURCE_EXHAUSTED|quota|\b404\b|not.?found|not supported|unsupported|billing|free tier/i.test(m)};
+async function withFallback(models,call){const key=models.join(),st=modelIdx[key]||0;let last;
+ for(let k=0;k<models.length;k++){const i=(st+k)%models.length;
+  try{const r=await call(models[i]);modelIdx[key]=i;return r}catch(e){last=e;if(fallbackable(e))continue;throw e}}throw last}
 /* ---- chat flow ---- */
 function addMsg(r,t){CH.msgs.push({r,t});if(CH.msgs.length>60)CH.msgs.shift();renderChat()}
 async function chatSend(raw){const q=String(raw||'').trim().slice(0,300);if(!q||CH.busy||!canEdit)return;
- CH.pending=null;addMsg('u',q);
+ CH.pending=null;CH.offer=false;addMsg('u',q);
  const fx=fixedCommand(q);if(fx){propose(fx,'');return}
- if(used()>=CHAT_LIMIT){addMsg('a','Daily limit of '+CHAT_LIMIT+' AI messages reached. Use the quick buttons or commands like “refresh 10/25”, “lock”, “unlock”.');return}
  if(Date.now()-CH.last<2000){addMsg('a','Please wait a moment between messages.');return}
  CH.last=Date.now();CH.busy=true;renderChat();
- try{await ensureAI();aliasEnsure();const user=scrub(q),ctx=buildContext(ym,q);
-  const contents=CH.hist.slice(-4).map(h=>({role:h.r,parts:[{text:h.t}]})).concat([{role:'user',parts:[{text:ctx+'\nQuestion: '+user}]}]);
-  const out=await aiImpl(contents);bump();
-  CH.hist.push({r:'user',t:user},{r:'model',t:(out.text||'(proposed changes)').slice(0,400)});
-  CH.busy=false;propose(out.calls||[],out.text||'')}
+ try{const act=wantsAction(q);await ensureAI();aliasEnsure();const user=scrub(q),ctx=buildContext(ym,q,!act);
+  const contents=CH.hist.slice(act?-4:-6).map(h=>({role:h.r,parts:[{text:h.t}]})).concat([{role:'user',parts:[{text:ctx+'\nQuestion: '+user}]}]);
+  const out=await aiImpl(contents,act);
+  CH.hist.push({r:'user',t:user},{r:'model',t:(out.text||'(prepared changes)').slice(0,1500)});
+  CH.busy=false;CH.offer=!act&&!!out.text;propose(out.calls||[],out.text||'')}
  catch(e){CH.busy=false;try{console.error('Assistant error',e)}catch(x){}addMsg('a',aiErr(e))}}
 function propose(calls,text){const say=text?unscrub(text):'';if(!calls.length){addMsg('a',say||'I didn’t get an answer. Try asking in a different way.');return}
  const p=buildActions(calls);if(say)CH.msgs.push({r:'a',t:say});
@@ -412,19 +453,21 @@ function chatClick(c){
  else if(c==='send'){const i=document.getElementById('cinput');if(i){const v=i.value;i.value='';chatSend(v)}}
  else if(c==='ok')chatApply();
  else if(c==='no'){CH.pending=null;addMsg('a','Cancelled.')}
+ else if(c==='prep')chatSend('Apply the changes you suggested above.');
+ else if(c==='q-rot')chatSend('Check role rotation for this month: who repeats the same role, who is underused, whether anyone breaks the rest or monthly rules, and whether Auto-fill is good enough or I should adjust by hand.');
  else if(c.indexOf('q-')===0){addMsg('a',quick(c.slice(2)))}}
 function renderChat(){const m=document.getElementById('cmsgs');if(!m)return;
- let h=CH.msgs.length?'':'<div class="sub">Ask about the roster, or ask for a change. Changes need your confirmation. Quick commands: “refresh 10/25”, “lock”, “unlock”.</div>';
+ let h=CH.msgs.length?'':'<div class="sub">Ask me to check rotation, availability or conflicts. I explain my reasoning first and only prepare changes when you ask (for example “swap …” or “apply”). You always confirm before anything changes. Quick commands: “refresh 10/25”, “lock”, “unlock”.</div>';
  CH.msgs.forEach(x=>{h+='<div class="cm '+(x.r==='u'?'cu':'ca')+'">'+esc(x.t)+'</div>'});
  if(CH.pending){const p=CH.pending;h+='<div class="cm ca"><b>Confirm these changes?</b>'+p.items.map(it=>'<div>• '+esc(it.text)+it.warn.map(w=>' <span class="r">⚠ '+esc(w)+'</span>').join('')+'</div>').join('')+p.errors.map(e=>'<div class="sub">'+esc(e)+'</div>').join('')+'<div class="bar" style="margin:8px 0 0"><button data-c="ok">Confirm</button><button class="g" data-c="no">Cancel</button></div></div>'}
+ if(CH.offer&&!CH.pending&&!CH.busy)h+='<div class="bar" style="margin:4px 0"><button data-c="prep">Prepare these changes</button><span class="sub">Only if you want me to act on the answer above.</span></div>';
  if(CH.busy)h+='<div class="cm ca sub">Thinking…</div>';
  m.innerHTML=h;m.scrollTop=m.scrollHeight;
- const f=document.getElementById('cft');if(f)f.textContent='Names are replaced by codes before anything goes to the AI. '+Math.max(0,CHAT_LIMIT-used())+' of '+CHAT_LIMIT+' AI messages left today.';
  const mo=document.getElementById('cmon');if(mo)mo.textContent=' · '+monLabel(ym)}
 function chatInit(){const fab=document.createElement('button');fab.className='cfab';fab.textContent='💬';fab.title='Assistant';fab.style.display='none';
  fab.addEventListener('click',()=>{CH.open=!CH.open;chatVis()});
  const root=document.createElement('div');root.className='cpanel';root.style.display='none';
- root.innerHTML='<div class="ch"><b>Assistant</b><span class="sub" id="cmon"></span><span class="cx"><button data-c="clear" title="Clear chat">🗑</button><button data-c="close" title="Close">✕</button></span></div><div class="cmsgs" id="cmsgs"></div><div class="cq"><button data-c="q-empty">Empty slots</button><button data-c="q-count">Counts</button><button data-c="q-prob">Problems</button></div><div class="cin"><input id="cinput" maxlength="300" placeholder="Ask or change something…" autocomplete="off"><button data-c="send">Send</button></div><div class="sub cft" id="cft"></div>';
+ root.innerHTML='<div class="ch"><b>Assistant</b><span class="sub" id="cmon"></span><span class="cx"><button data-c="clear" title="Clear chat">🗑</button><button data-c="close" title="Close">✕</button></span></div><div class="cmsgs" id="cmsgs"></div><div class="cq"><button data-c="q-rot">Check rotation</button><button data-c="q-empty">Empty slots</button><button data-c="q-count">Counts</button><button data-c="q-prob">Problems</button></div><div class="cin"><input id="cinput" maxlength="300" placeholder="Ask or change something…" autocomplete="off"><button data-c="send">Send</button></div>';
  root.addEventListener('click',e=>{const b=e.target.closest('button[data-c]');if(b)chatClick(b.dataset.c)});
  root.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='cinput'){e.preventDefault();chatClick('send')}});
  document.body.appendChild(fab);document.body.appendChild(root);CH.fab=fab;CH.root=root}
