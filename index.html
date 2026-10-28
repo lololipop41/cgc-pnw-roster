@@ -305,9 +305,9 @@ const SLN=['Lead','Backup1','Backup2','Piano','Bass','Drum','PA','PPT'],SLX={Lea
 let APPCHECK_KEY='6LcUxAIuAAAAADMHvO1rMlKHQTjBuoAnfmh_5NIy';
 const SDK='https://www.gstatic.com/firebasejs/12.19.0/';
 /* Reasoning questions use the stronger Flash model. Turning an explicit request into changes uses the cheaper Flash-Lite. None of these need billing (Firebase docs, Oct 2026). */
-const MODELS_ASK=['gemini-3.5-flash','gemini-3.5-flash-lite'],MODELS_ACT=['gemini-3.5-flash-lite','gemini-3.5-flash'];
-const SYS_ASK='You are an analyst for a church Praise & Worship roster. Use only supplied data and exact person codes; never invent missing information.Review the requested month. Check availability, role eligibility, consecutive-Sunday restrictions, monthly limits, Sunday restrictions, prefers-with/never-with constraints, and role history. Identify conflicts, scarce roles, and unfair role repetition using specific dates, people, and roles.Rotation means distributing each role among eligible people and avoiding repeated assignments when alternatives exist without breaking rules.Conclude with key findings and recommendations, including whether Auto-fill is sufficient. Do not change or propose roster changes unless asked. Never output function calls. If unclear, ask one short question. If appropriate, offer briefly to prepare requested changes. If the user might want you to act on them, end with one short line offering to prepare the changes. Reply concisely but completely, using short bullet points. If the question is unclear, ask one short question.';
-const SYS_ACT='You turn the user\'s request into function calls for a church Praise & Worship roster. People appear only as codes (P01, P02, ...). Only do what the user asked. If they say to apply or do what you suggested earlier, use the suggestions in your previous reply and nothing else. If the message is not clearly a request to change something, answer in one or two sentences without calling any function. If the person, date or slot is unclear, ask one short question instead of guessing. Reply in the language of the user.';
+const MODELS_ASK=['gemini-3.8-flash','gemini-3.5-flash','gemini-3.5-flash-lite'],MODELS_ACT=['gemini-3.5-flash-lite','gemini-3.5-flash'];
+const SYS_ASK='You analyse a church worship-team roster. People are codes (P01...); use codes only. Use only the data given and say when something is missing. Rules: max 3 services per person per month unless "max" is shown; nobody serves two Sundays in a row; only listed roles; only when available. Availability string = one character per Sunday in order (Y yes, N no, B busy elsewhere, - unknown). Rotation = spread each role over different eligible people; avoid repeating one person in a role when others can serve. App features you may mention: Auto-fill (fills empty slots only), Refresh on a Sunday (swaps out people who cannot serve), Lock, Availability tab, People tab. Answer exactly what is asked: think step by step, give findings, then a recommendation (say if Auto-fill is enough). Never change anything or output function calls; at most one short closing line offering to prepare changes. Plain text only, no markdown or asterisks; use "-" bullets. Same language as the user, max 200 words.';
+const SYS_ACT='You turn explicit requests into function calls for a church worship roster. People are codes (P01...). Backup1 and Backup2 are the 1st and 2nd Backup slots. Do only what was asked; "apply" means the suggestions in your previous reply. If the request is unclear or not a change, reply in one short sentence instead. Plain text, no markdown. Same language as the user.';
 const CH={open:false,msgs:[],hist:[],pending:null,busy:false,last:0,offer:false,root:null,fab:null};
 let AL={code:{},id:{}},aiImpl=null;
 const escRe=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),nmOf=q=>q&&P[q]?P[q].name:'(empty)';
@@ -324,40 +324,42 @@ const codeOf=x=>AL.code[x]||'?',ROLE_NAMES=['Lead','Backup','Piano','Bass','Drum
 function roleTally(yr){const t={};ids().forEach(x=>{t[x]={}});Object.keys(R).forEach(k=>{if(!k.startsWith(yr)||!t[R[k]])return;const r=SL[+k.split('|')[1]];t[R[k]][r]=(t[R[k]][r]||0)+1});return t}
 function simulateFill(m){const saved=Object.assign({},R),empty=[];
  suns(m).forEach(d=>SL.forEach((_,i)=>{if(!at(d,i))empty.push([d,i])}));
- fillPlan(m);const after=Object.assign({},R),left=[];
- empty.forEach(([d,i])=>{if(after[d+'|'+i])return;const pool=ids().filter(x=>P[x].roles.includes(SL[i]));let why;
+ fillPlan(m);const after=Object.assign({},R),left=[],added=[];
+ empty.forEach(([d,i])=>{if(after[d+'|'+i]){added.push(d.slice(5)+' '+SLN[i]+'='+codeOf(after[d+'|'+i]));return}
+  const pool=ids().filter(x=>P[x].roles.includes(SL[i]));let why;
   if(!pool.length)why='nobody has this role';
   else{const av=pool.filter(x=>P[x].avail[d]==='Y');
-   if(!av.length)why='nobody who can do it is available ('+pool.length+' can do the role)';
+   if(!av.length)why='nobody who can do it is available';
    else{const rs={};av.forEach(x=>{iss(x,d,i).h.forEach(h=>{const k=/^Avoid /.test(h)?'never-with conflict':h;(rs[k]=rs[k]||[]).push(codeOf(x))})});
-    why='available but blocked: '+(Object.keys(rs).map(k=>k+' ('+rs[k].join(',')+')').join('; ')||'unknown')}}
+    why='blocked: '+(Object.keys(rs).map(k=>k+' ('+rs[k].join(',')+')').join('; ')||'unknown')}}
   left.push(d.slice(5)+' '+SLN[i]+': '+why)});
- R=saved;return{total:empty.length,filled:empty.length-left.length,after,left}}
+ R=saved;return{total:empty.length,filled:empty.length-left.length,added,left}}
 function buildContext(m,q,deep){aliasEnsure();const ds=suns(m),yr=m.slice(0,4),c=codeOf,
  withRem=/remark|note|备注|備註|request|要求|一起|together|partner|why|为什么|為什麼/i.test(q);
- const L=['Today '+new Date().toISOString().slice(0,10)+'. Month '+m+(LK[m]?' (LOCKED)':'')+'. Sundays: '+ds.map(d=>d.slice(5)).join(' ')+'. Slots: '+SLN.join(',')+'.'];
- L.push('Rules: a person max per month as listed; nobody serves two Sundays in a row; only roles listed; only when available.');
- L.push('People: code | roles | max per month | prefers with | never with | only Sunday no. | served this month/year'+(deep?' | roles served this year':''));
- const tally=deep?roleTally(yr):null;
- ids().forEach(x=>{const p=P[x];L.push([c(x),p.roles.join('/')||'-',p.max,p.partner.map(c).join('/')||'-',p.avoid.map(c).join('/')||'-',p.nth.join('/')||'any',cnt(x,m)+'/'+cnt(x,yr)].join(' | ')
-  +(deep?' | '+(Object.keys(tally[x]).map(r=>r+'×'+tally[x][r]).join(' ')||'-'):'')+(withRem&&p.remarks?' | note: '+scrub(p.remarks).slice(0,80):''))});
- L.push('Availability, one character per Sunday in order (Y yes, N no, B busy elsewhere, - unknown):');
- ids().forEach(x=>L.push(c(x)+' '+ds.map(d=>({Y:'Y',N:'N',B:'B'}[P[x].avail[d]]||'-')).join('')));
- L.push('Current roster:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>{const x=at(d,i);return SLN[i]+'='+(x&&AL.code[x]?AL.code[x]:'-')}).join(' ')));
- const pr=[];ds.forEach(d=>SL.forEach((_,i)=>{const x=at(d,i);if(x&&P[x]){const h=iss(x,d,i).h;if(h.length)pr.push(d.slice(5)+' '+SLN[i]+'='+c(x)+': '+scrub(h.join(', ')))}}));
- if(pr.length){L.push('Problems in the current roster:');pr.forEach(x=>L.push(x))}
- if(deep){
-  L.push('Role pools (people who can do the role) and who is available on each Sunday:');
-  ROLE_NAMES.forEach(r=>{const pool=ids().filter(x=>P[x].roles.includes(r));
-   L.push(r+' ('+pool.length+'): '+(pool.map(c).join(' ')||'nobody')+' || '+ds.map(d=>d.slice(5)+': '+(pool.filter(x=>P[x].avail[d]==='Y').map(c).join(' ')||'none')).join(' | '))});
-  L.push('Role history this year (who served the role how many times, current roster included):');
-  ROLE_NAMES.forEach(r=>{const a=ids().filter(x=>tally[x][r]).map(x=>c(x)+'×'+tally[x][r]);L.push(r+': '+(a.join(' ')||'nobody yet'))});
-  const sim=simulateFill(m);
-  L.push('Auto-fill simulation (NOT applied): it would fill '+sim.filled+' of '+sim.total+' empty slots.');
-  if(sim.total){L.push('Roster if Auto-fill ran:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>SLN[i]+'='+(sim.after[d+'|'+i]?c(sim.after[d+'|'+i]):'-')).join(' ')));
-   if(sim.left.length){L.push('Still empty after Auto-fill, and why:');sim.left.forEach(x=>L.push(x))}
-   const ld={};Object.keys(sim.after).filter(k=>k.startsWith(m)).forEach(k=>{ld[sim.after[k]]=(ld[sim.after[k]]||0)+1});
-   L.push('Services this month if Auto-fill ran: '+(Object.keys(ld).map(x=>c(x)+'='+ld[x]).join(' ')||'none'))}}
+ const L=['Today '+new Date().toISOString().slice(5,10)+'. Month '+m+(LK[m]?' LOCKED (Auto-fill, Clear and slot edits are off until unlocked)':'')+'. Sundays: '+ds.map(d=>d.slice(5)).join(' ')+'.'];
+ /* only people who matter for this month: they have a role and (are assigned, or are available / unknown on some Sunday) */
+ const assigned=new Set();ds.forEach(d=>SL.forEach((_,i)=>{const x=at(d,i);if(x)assigned.add(x)}));
+ const rel=new Set(ids().filter(x=>P[x].roles.length&&(assigned.has(x)||ds.some(d=>P[x].avail[d]!=='N'&&P[x].avail[d]!=='B'))));
+ [...rel].forEach(x=>P[x].partner.concat(P[x].avoid).forEach(y=>{if(P[y]&&P[y].roles.length)rel.add(y)}));
+ const tally=deep?roleTally(yr):null,list=ids().filter(x=>rel.has(x));
+ L.push(deep?'People: code, roles, limits, availability, roles served this year':'People: code, roles');
+ list.forEach(x=>{const p=P[x],t=[c(x),p.roles.join(',')];
+  if(!deep){L.push(t.join(' '));return}
+  if(p.max!==3)t.push('max'+p.max);if(p.partner.length)t.push('with:'+p.partner.map(c).join(','));if(p.avoid.length)t.push('never-with:'+p.avoid.map(c).join(','));if(p.nth.length)t.push('only Sunday no. '+p.nth.join(','));
+  t.push(ds.map(d=>({Y:'Y',N:'N',B:'B'}[p.avail[d]]||'-')).join(''));
+  const h=Object.keys(tally[x]).map(r=>r+tally[x][r]).join(' ');if(h)t.push('hist '+h);
+  if(withRem&&p.remarks)t.push('note: '+scrub(p.remarks).slice(0,80));L.push(t.join(' | '))});
+ L.push('Roster:');ds.forEach(d=>L.push(d.slice(5)+' '+SL.map((_,i)=>{const x=at(d,i);return SLN[i]+'='+(x&&AL.code[x]?AL.code[x]:'-')}).join(' ')));
+ if(!deep)return L.join('\n');
+ const pr=[];ds.forEach(d=>SL.forEach((_,i)=>{const x=at(d,i);if(x&&P[x]){const h=iss(x,d,i).h;if(h.length)pr.push(d.slice(5)+' '+SLN[i]+' '+c(x)+': '+scrub(h.join(', ')).toLowerCase())}}));
+ if(pr.length){L.push('Rule problems now:');pr.forEach(x=>L.push(x))}
+ const ld={};ds.forEach(d=>SL.forEach((_,i)=>{const x=at(d,i);if(x)ld[x]=(ld[x]||0)+1}));
+ const lds=Object.keys(ld).filter(x=>P[x]).map(x=>c(x)+' '+ld[x]);if(lds.length)L.push('Services this month: '+lds.join(', '));
+ L.push('Available by role (people with the role who are free):');
+ ROLE_NAMES.forEach(r=>L.push(r+': '+ds.map(d=>d.slice(5)+' '+(ids().filter(x=>P[x].roles.includes(r)&&P[x].avail[d]==='Y').map(c).join(',')||'none')).join(' | ')));
+ const sim=simulateFill(m);
+ if(sim.total){L.push('Auto-fill simulation (not applied): fills '+sim.filled+' of '+sim.total+' empty slots'+(sim.added.length?': '+sim.added.join(', '):'')+'.');
+  if(sim.left.length){L.push('Would stay empty:');sim.left.forEach(x=>L.push(x))}}
  return L.join('\n')}
 /* ---- turn the AI's function calls into a list the editor must confirm ---- */
 const isSun=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')&&new Date(d+'T00:00:00Z').getUTCDay()===0,isMon=m=>/^\d{4}-\d{2}$/.test(m||'');
@@ -411,16 +413,18 @@ async function ensureAI(){if(aiImpl)return;
   {name:'clear_month',description:'Clear every name in a month.',parameters:S.object({properties:{month:str('YYYY-MM')}})},
   {name:'set_lock',description:'Lock or unlock the roster of a month.',parameters:S.object({properties:{month:str('YYYY-MM'),locked:S.boolean()}})}]}];
  const TL=M.ThinkingLevel,think=TL?{thinkingConfig:{thinkingLevel:TL.MEDIUM||TL.HIGH||TL.LOW}}:{};
- const build=(name,act,th)=>M.getGenerativeModel(ai,Object.assign({model:name,systemInstruction:act?SYS_ACT:SYS_ASK,generationConfig:Object.assign({maxOutputTokens:act?1024:4096,temperature:act?0.2:0.3},th?think:{})},act?{tools}:{}));
+ const build=(name,act,th)=>M.getGenerativeModel(ai,Object.assign({model:name,systemInstruction:act?SYS_ACT:SYS_ASK,generationConfig:Object.assign({maxOutputTokens:act?1024:12000},th?think:{})},act?{tools}:{}));
  aiImpl=(contents,act)=>withFallback(act?MODELS_ACT:MODELS_ASK,async name=>{
    const run=async th=>{const rs=(await build(name,act,th).generateContent({contents})).response;let calls=[],text='';
     try{calls=(rs.functionCalls&&rs.functionCalls())||[]}catch(e){}try{text=rs.text()}catch(e){}return{text,calls}};
    try{return await run(!act)}catch(e){if(!act&&/thinking/i.test(String((e&&e.message)||e)))return run(false);throw e}})}
 const modelIdx={};
-const fallbackable=e=>{const m=String((e&&e.message)||e);return!/App ?Check/i.test(m)&&/\b429\b|RESOURCE_EXHAUSTED|quota|\b404\b|not.?found|not supported|unsupported|billing|free tier/i.test(m)};
-async function withFallback(models,call){const key=models.join(),st=modelIdx[key]||0;let last;
+const fallbackable=e=>{const m=String((e&&e.message)||e);return!/App ?Check/i.test(m)&&/\b429\b|RESOURCE_EXHAUSTED|quota|\b404\b|not.?found|not supported|unsupported|billing|free tier|\b50[0-4]\b|UNAVAILABLE|overloaded|high demand|INTERNAL|timeout|timed out|deadline/i.test(m)};
+const withTimeout=(p,ms)=>{let t;return Promise.race([p,new Promise((_,rej)=>{t=setTimeout(()=>rej(new Error('timeout after '+Math.round(ms/1000)+'s')),ms)})]).finally(()=>clearTimeout(t))};
+async function withFallback(models,call,ms){const key=models.join(),st=modelIdx[key]||0,skipped=[];let last;
  for(let k=0;k<models.length;k++){const i=(st+k)%models.length;
-  try{const r=await call(models[i]);modelIdx[key]=i;return r}catch(e){last=e;if(fallbackable(e))continue;throw e}}throw last}
+  try{const r=await withTimeout(call(models[i]),ms||60000);modelIdx[key]=i;if(skipped.length&&r&&typeof r==='object')r.note='Answered by '+models[i]+'. Skipped: '+skipped.join('; ')+'.';return r}
+  catch(e){last=e;if(fallbackable(e)){skipped.push(models[i]+' ('+String((e&&e.message)||e).replace(/\s+/g,' ').slice(0,90)+')');continue}throw e}}throw last}
 /* ---- chat flow ---- */
 function addMsg(r,t){CH.msgs.push({r,t});if(CH.msgs.length>60)CH.msgs.shift();renderChat()}
 async function chatSend(raw){const q=String(raw||'').trim().slice(0,300);if(!q||CH.busy||!canEdit)return;
@@ -429,10 +433,10 @@ async function chatSend(raw){const q=String(raw||'').trim().slice(0,300);if(!q||
  if(Date.now()-CH.last<2000){addMsg('a','Please wait a moment between messages.');return}
  CH.last=Date.now();CH.busy=true;renderChat();
  try{const act=wantsAction(q);await ensureAI();aliasEnsure();const user=scrub(q),ctx=buildContext(ym,q,!act);
-  const contents=CH.hist.slice(act?-4:-6).map(h=>({role:h.r,parts:[{text:h.t}]})).concat([{role:'user',parts:[{text:ctx+'\nQuestion: '+user}]}]);
+  const contents=CH.hist.slice(-4).map(h=>({role:h.r,parts:[{text:h.t}]})).concat([{role:'user',parts:[{text:ctx+'\nQuestion: '+user}]}]);
   const out=await aiImpl(contents,act);
-  CH.hist.push({r:'user',t:user},{r:'model',t:(out.text||'(prepared changes)').slice(0,1500)});
-  CH.busy=false;CH.offer=!act&&!!out.text;propose(out.calls||[],out.text||'')}
+  CH.hist.push({r:'user',t:user},{r:'model',t:(out.text||'(prepared changes)').slice(0,1200)});
+  CH.busy=false;CH.offer=!act&&!!out.text;propose(out.calls||[],out.text||'');if(out.note)addMsg('n',out.note)}
  catch(e){CH.busy=false;try{console.error('Assistant error',e)}catch(x){}addMsg('a',aiErr(e))}}
 function propose(calls,text){const say=text?unscrub(text):'';if(!calls.length){addMsg('a',say||'I didn’t get an answer. Try asking in a different way.');return}
  const p=buildActions(calls);if(say)CH.msgs.push({r:'a',t:say});
@@ -456,9 +460,10 @@ function chatClick(c){
  else if(c==='prep')chatSend('Apply the changes you suggested above.');
  else if(c==='q-rot')chatSend('Check role rotation for this month: who repeats the same role, who is underused, whether anyone breaks the rest or monthly rules, and whether Auto-fill is good enough or I should adjust by hand.');
  else if(c.indexOf('q-')===0){addMsg('a',quick(c.slice(2)))}}
+function fmtMsg(t){return esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/(^|\n)[ \t]*[*-] /g,'$1• ').replace(/(^|[\s(])\*(\S[^*\n]*?)\*(?=[\s).,;:!?]|$)/g,'$1<i>$2</i>')}
 function renderChat(){const m=document.getElementById('cmsgs');if(!m)return;
  let h=CH.msgs.length?'':'<div class="sub">Ask me to check rotation, availability or conflicts. I explain my reasoning first and only prepare changes when you ask (for example “swap …” or “apply”). You always confirm before anything changes. Quick commands: “refresh 10/25”, “lock”, “unlock”.</div>';
- CH.msgs.forEach(x=>{h+='<div class="cm '+(x.r==='u'?'cu':'ca')+'">'+esc(x.t)+'</div>'});
+ CH.msgs.forEach(x=>{h+=x.r==='n'?'<div class="sub" style="margin:2px 4px">'+esc(x.t)+'</div>':'<div class="cm '+(x.r==='u'?'cu':'ca')+'">'+(x.r==='a'?fmtMsg(x.t):esc(x.t))+'</div>'});
  if(CH.pending){const p=CH.pending;h+='<div class="cm ca"><b>Confirm these changes?</b>'+p.items.map(it=>'<div>• '+esc(it.text)+it.warn.map(w=>' <span class="r">⚠ '+esc(w)+'</span>').join('')+'</div>').join('')+p.errors.map(e=>'<div class="sub">'+esc(e)+'</div>').join('')+'<div class="bar" style="margin:8px 0 0"><button data-c="ok">Confirm</button><button class="g" data-c="no">Cancel</button></div></div>'}
  if(CH.offer&&!CH.pending&&!CH.busy)h+='<div class="bar" style="margin:4px 0"><button data-c="prep">Prepare these changes</button><span class="sub">Only if you want me to act on the answer above.</span></div>';
  if(CH.busy)h+='<div class="cm ca sub">Thinking…</div>';
